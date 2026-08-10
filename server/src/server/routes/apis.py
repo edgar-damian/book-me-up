@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Path, status
-from server.models.public_models import WorkerProfilePublic, EstablishmentPublic
+from server.models.public_models import WorkerLandingPage, EstablishmentLandingPage
 from server.supabase.sb_function import (
     DatabaseUnavailable, 
     get_worker_by_slug,
@@ -19,7 +19,7 @@ def health():
 
 @router.get(
     "/book-with/{barber_slug}",
-    response_model=WorkerProfilePublic,
+    response_model=WorkerLandingPage,
     responses={404: {"description": "No active barber with that slug"}},
 )
 def book_with(
@@ -56,11 +56,11 @@ def book_with(
 
 
 @router.get(
-    "/establishmets/{establishment_slug}",
-    response_model=EstablishmentPublic,
+    "/establishments/{establishment_slug}",
+    response_model=EstablishmentLandingPage,
     responses={404: {"description": "No active establishment with that slug"}},
 )
-def book_with(
+def establishment(
     establishment_slug: str = Path(
         ...,
         min_length=1,

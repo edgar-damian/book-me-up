@@ -4,13 +4,13 @@
 import httpx
 import logging
 from postgrest import APIError
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from supabase import Client, ClientOptions, create_client
 from server.core.config import settings
 from server.models.public_models import (
     to_public,
-    WorkerProfilePublic,
-    EstablishmentPublic,
+    WorkerLandingPage,
+    EstablishmentLandingPage,
 )
 logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -30,14 +30,37 @@ class DatabaseUnavailable(RuntimeError):
     """Supabase refused or failed the query. Never surfaced to the client verbatim."""
 
 
-_WORKER_PROFILE_PUBLIC_COLS = ", ".join(WorkerProfilePublic.model_fields)
-_ESTABLISHMENT_PUBLIC_COLS = ", ".join(
-    f"workers:worker_establishment(...worker_profile!inner({_WORKER_PROFILE_PUBLIC_COLS}))"
-    if name == "workers" else name
-    for name in EstablishmentPublic.model_fields
+def _cols(model: type[BaseModel], **embeds: str) -> str:
+    """
+    PostgREST select list for a public model. Scalar fields map straight to
+    column names; a field backed by another table is not a column, so it must be
+    passed in as an embed expression or the query 400s on the first request.
+    """
+    return ", ".join(embeds.get(name, name) for name in model.model_fields)
+
+
+_WORKER_CARD_COLS = _cols(EstablishmentLandingPage.Workers)
+
+_ESTABLISHMENT_PUBLIC_COLS = _cols(
+    EstablishmentLandingPage,
+    workers=f"workers:worker_establishment(...worker_profile!inner({_WORKER_CARD_COLS}))",
 )
 
-def get_worker_by_slug(slug: str) -> WorkerProfilePublic | None:
+# groups by chair and establishment, so if a worker 
+# works at 2 establishments we get 2 objects
+_CHAIR_COLS = _cols(
+    WorkerLandingPage.Chair,
+    establishment=f"establishment:establishment!inner({_cols(WorkerLandingPage.Chair.Establishment)})",
+    schedule_days=f"schedule_days:worker_schedule_day({_cols(WorkerLandingPage.Chair.Day)})",
+)
+
+_WORKER_PROFILE_PUBLIC_COLS = _cols(
+    WorkerLandingPage,
+    services=f"services:service({_cols(WorkerLandingPage.Services)})",
+    chairs=f"chairs:worker_establishment({_CHAIR_COLS})",
+)
+
+def get_worker_by_slug(slug: str) -> WorkerLandingPage | None:
     """
     Look up one barber's public profile by their booking-page slug.
 
@@ -57,6 +80,8 @@ def get_worker_by_slug(slug: str) -> WorkerProfilePublic | None:
             .select(_WORKER_PROFILE_PUBLIC_COLS)
             .eq("slug", slug)
             .eq("is_active", True)
+            .eq("service.is_active", True)
+            .eq("worker_establishment.is_active", True)
             .limit(1)
             .execute()
         )
@@ -69,7 +94,7 @@ def get_worker_by_slug(slug: str) -> WorkerProfilePublic | None:
         return None
 
     try:
-        row = to_public(WorkerProfilePublic, resp.data[0])
+        row = to_public(WorkerLandingPage, resp.data[0])
 
     except ValidationError as exc:
         logger.exception("worker_profile row failed validation for slug=%r", slug)
@@ -78,7 +103,7 @@ def get_worker_by_slug(slug: str) -> WorkerProfilePublic | None:
     return row
 
 
-def get_establishment_by_slug(slug: str) -> EstablishmentPublic | None:
+def get_establishment_by_slug(slug: str) -> EstablishmentLandingPage | None:
     """
     Looks up one establishment's public profile by their slug.
 
@@ -86,7 +111,7 @@ def get_establishment_by_slug(slug: str) -> EstablishmentPublic | None:
         - slug (str): unique slug from the booking URL
 
     Returns:
-        - EstablishmentPublic row, or None if no establishment matches.
+        - EstablishmentLandingPage row, or None if no establishment matches.
 
     Raises:
         - DatabaseUnavailable: the query itself failed (network, bad policy,
@@ -113,7 +138,7 @@ def get_establishment_by_slug(slug: str) -> EstablishmentPublic | None:
 
     # format the data correctly
     try:
-        row = to_public(EstablishmentPublic, resp.data[0])
+        row = to_public(EstablishmentLandingPage, resp.data[0])
     except ValidationError as exc:
         logger.exception("establishment row failed validation for slug=%r", slug)
         raise DatabaseUnavailable("schema mismatch") from exc

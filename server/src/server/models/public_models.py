@@ -21,7 +21,46 @@ def to_public[P: BaseModel](public_model: type[P], row: object) -> P:
     return public_model.model_validate(row, from_attributes=True)
 
 
-class WorkerProfilePublic(BaseModel):
+class WorkerLandingPage(BaseModel):
+    """
+    Object is used to make a landing page dedicated for each worker
+    """
+    class Services(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+
+        id: UUID
+        worker_id: UUID
+        title: str
+        description: str
+        image: str | None = None
+        price_cents: int
+        duration_min: int
+        is_active: bool
+
+    class Chair(BaseModel):
+        """
+        A worker has one Chair object per location they work in 
+        """
+        class Establishment(BaseModel):
+            model_config = ConfigDict(extra="ignore")
+            id: UUID
+            slug: str
+            name: str
+            city: str
+            timezone: str
+
+        class Day(BaseModel):
+            model_config = ConfigDict(extra="ignore")
+            day_of_week: int
+            start_minute: int
+            end_minute: int
+
+        model_config = ConfigDict(extra="ignore")
+        id: UUID
+        establishment: Establishment
+        schedule_days: list[Day]
+
+
     model_config = ConfigDict(extra="ignore")
 
     id: UUID
@@ -37,13 +76,29 @@ class WorkerProfilePublic(BaseModel):
     auto_accept: bool
     min_lead_time_min: int
     max_advance_days: int
-    cancellation_cutoff_min: int   
+    cancellation_cutoff_min: int
 
-    worker_schedule_days: list[WorkerScheduleDay]
-    services: list[Service]
+    services: list[Services]
+    chairs: list[Chair]
+    
 
 
-class EstablishmentPublic(BaseModel):
+class EstablishmentLandingPage(BaseModel):
+    """
+    Object is used to render a landing page of a shop/establishment
+    """
+
+    class Workers(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+
+        id: UUID
+        slug: str
+        first_name: str
+        last_name: str
+        bio: str
+        image: str | None = None
+        is_active: bool
+        
     model_config = ConfigDict(extra="ignore")
     
     id: UUID
@@ -62,7 +117,7 @@ class EstablishmentPublic(BaseModel):
     description: str
     images: list[str]
     is_active: bool
-    workers: list[WorkerProfilePublic]
+    workers: list[Workers]
 
 
 # class Client(BaseModel):
@@ -84,30 +139,30 @@ class EstablishmentPublic(BaseModel):
 #     created_at: AwareDatetime
 
 
-class Service(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+# class Service(BaseModel):
+#     model_config = ConfigDict(extra="ignore")
 
-    id: UUID
-    worker_id: UUID
-    title: str
-    description: str
-    image: str | None = None
-    price_cents: int
-    duration_min: int
-    buffer_after_min: int
-    is_active: bool
+#     id: UUID
+#     worker_id: UUID
+#     title: str
+#     description: str
+#     image: str | None = None
+#     price_cents: int
+#     duration_min: int
+#     buffer_after_min: int
+#     is_active: bool
 
 
-class WorkerScheduleDay(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+# class WorkerScheduleDay(BaseModel):
+#     model_config = ConfigDict(extra="ignore")
 
-    id: UUID 
-    worker_establishment_id: UUID
-    day_of_week: int
-    start_minute: int
-    end_minute: int
-    break_start_minute: int | None = None
-    break_end_minute: int | None = None
+#     id: UUID 
+#     worker_establishment_id: UUID
+#     day_of_week: int
+#     start_minute: int
+#     end_minute: int
+#     break_start_minute: int | None = None
+#     break_end_minute: int | None = None
 
 
 # class ClientNote(BaseModel):
