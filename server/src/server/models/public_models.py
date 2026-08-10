@@ -37,9 +37,10 @@ class WorkerProfilePublic(BaseModel):
     auto_accept: bool
     min_lead_time_min: int
     max_advance_days: int
-    cancellation_cutoff_min: int
+    cancellation_cutoff_min: int   
 
-    
+    worker_schedule_days: list[WorkerScheduleDay]
+    services: list[Service]
 
 
 class EstablishmentPublic(BaseModel):
@@ -61,6 +62,7 @@ class EstablishmentPublic(BaseModel):
     description: str
     images: list[str]
     is_active: bool
+    workers: list[WorkerProfilePublic]
 
 
 # class Client(BaseModel):
@@ -82,26 +84,30 @@ class EstablishmentPublic(BaseModel):
 #     created_at: AwareDatetime
 
 
-# class Service(BaseModel):
-#     id: UUID
-#     worker_id: UUID
-#     title: str
-#     description: str
-#     image: str | None = None
-#     price_cents: int
-#     duration_min: int
-#     buffer_after_min: int
-#     is_active: bool
+class Service(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: UUID
+    worker_id: UUID
+    title: str
+    description: str
+    image: str | None = None
+    price_cents: int
+    duration_min: int
+    buffer_after_min: int
+    is_active: bool
 
 
-# class WorkerScheduleDay(BaseModel):
-#     id: UUID 
-#     worker_establishment_id: UUID
-#     day_of_week: int
-#     start_minute: int
-#     end_minute: int
-#     break_start_minute: int | None = None
-#     break_end_minute: int | None = None
+class WorkerScheduleDay(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: UUID 
+    worker_establishment_id: UUID
+    day_of_week: int
+    start_minute: int
+    end_minute: int
+    break_start_minute: int | None = None
+    break_end_minute: int | None = None
 
 
 # class ClientNote(BaseModel):
@@ -121,19 +127,19 @@ class EstablishmentPublic(BaseModel):
 #     updated_at: AwareDatetime
 
 
-# class Status(StrEnum):
-#     PENDING = 'PENDING'
-#     ACCEPTED = 'ACCEPTED'
-#     REJECTED = 'REJECTED'
-#     CANCELLED = 'CANCELLED'
-#     COMPLETED = 'COMPLETED'
-#     NO_SHOW = 'NO_SHOW'
+class Status(StrEnum):
+    PENDING = 'PENDING'
+    ACCEPTED = 'ACCEPTED'
+    REJECTED = 'REJECTED'
+    CANCELLED = 'CANCELLED'
+    COMPLETED = 'COMPLETED'
+    NO_SHOW = 'NO_SHOW'
 
 
-# class CancelledBy(StrEnum):
-#     CLIENT = 'CLIENT'
-#     WORKER = 'WORKER'
-#     SYSTEM = 'SYSTEM'
+class CancelledBy(StrEnum):
+    CLIENT = 'CLIENT'
+    WORKER = 'WORKER'
+    SYSTEM = 'SYSTEM'
 
 
 # class Appointment(BaseModel):
@@ -188,21 +194,13 @@ class EstablishmentPublic(BaseModel):
 #     updated_at: AwareDatetime
 
 
-# class WorkerEstablishment(BaseModel):
-#     id: UUID = Field(..., description='Note:\nThis is a Primary Key.<pk/>')
-#     worker_id: UUID = Field(
-#         ...,
-#         description="Note:\nThis is a Foreign Key to `worker_profile.id`.<fk table='worker_profile' column='id'/>",
-#     )
-#     establishment_id: UUID = Field(
-#         ...,
-#         description="Note:\nThis is a Foreign Key to `establishment.id`.<fk table='establishment' column='id'/>",
-#     )
-#     is_active: bool
-#     started_at: AwareDatetime
-#     ended_at: AwareDatetime | None = None
-#     created_at: AwareDatetime
-#     updated_at: AwareDatetime
+class WorkerEstablishmentPublic(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: UUID 
+    worker_id: UUID
+    establishment_id: UUID
+    is_active: bool
 
 
 # class AppUser(BaseModel):
