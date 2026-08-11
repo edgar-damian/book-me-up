@@ -1,10 +1,9 @@
 """
 Regenerates src/server/models/supabase_models.py from the live database.
 
-HOW TO RUN:
+HOW TO RUN: 
     `uv run python scripts/gen_models.py`
 """
-
 import json
 import re
 import subprocess
@@ -65,24 +64,15 @@ def main() -> int:
 
     result = subprocess.run(
         [
-            "uvx",
-            "--from",
-            "datamodel-code-generator",
-            "datamodel-codegen",
-            "--input",
-            tmp_path,
-            "--input-file-type",
-            "jsonschema",
-            "--output",
-            str(OUT),
-            "--output-model-type",
-            "pydantic_v2.BaseModel",
-            "--target-python-version",
-            "3.12",
+            "uvx", "--from", "datamodel-code-generator", "datamodel-codegen",
+            "--input", tmp_path,
+            "--input-file-type", "jsonschema",
+            "--output", str(OUT),
+            "--output-model-type", "pydantic_v2.BaseModel",
+            "--target-python-version", "3.12",
             "--use-standard-collections",
             "--use-union-operator",
-            "--formatters",
-            "black",
+            "--formatters", "black",
         ],
         capture_output=True,
         text=True,

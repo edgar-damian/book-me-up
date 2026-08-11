@@ -1,14 +1,8 @@
 from fastapi import APIRouter, HTTPException, Path, status
-
-from server.models.public_models import EstablishmentLandingPage, WorkerLandingPage
-from server.supabase.sb_function import (
-    DatabaseUnavailable,
-    get_establishment_by_slug,
-    get_worker_by_slug,
-)
+from server.models.public_models import WorkerProfilePublic, EstablishmentPublic
+from server.supabase.sb_function import DatabaseUnavailable, get_worker_by_slug
 
 router = APIRouter()
-
 
 @router.get("/health")
 def health():
@@ -18,7 +12,7 @@ def health():
 
 @router.get(
     "/book-with/{barber_slug}",
-    response_model=WorkerLandingPage,
+    response_model=WorkerProfilePublic,
     responses={404: {"description": "No active barber with that slug"}},
 )
 def book_with(
@@ -47,42 +41,8 @@ def book_with(
         )
 
     if worker is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found")
-
-    return worker
-
-
-@router.get(
-    "/establishments/{establishment_slug}",
-    response_model=EstablishmentLandingPage,
-    responses={404: {"description": "No active establishment with that slug"}},
-)
-def establishment(
-    establishment_slug: str = Path(
-        ...,
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
-        description="lowercase slug for an establishment or shop'",
-    ),
-):
-    """
-    Args:
-        - establishment_slug (str): slug used to query a specific establishment
-
-    Returns:
-        - Object to render an establishment's landing page
-    """
-    try:
-        establishment = get_establishment_by_slug(establishment_slug)
-    except DatabaseUnavailable:
-        # Vague on purpose, logs are more descriptive and private
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service temporarily unavailable",
+            status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found"
         )
-
-    if establishment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Establishment not found")
-
-    return establishment
+    
+    return worker

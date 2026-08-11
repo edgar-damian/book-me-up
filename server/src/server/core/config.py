@@ -6,17 +6,17 @@ In production there is no .env file - the process environment supplies these,
 and a missing one is a startup crash by design. Never add a default for a
 secret; a silent fallback is how the wrong key reaches production.
 """
-
 from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ENV_FILE = Path(__file__).resolve().parents[3] / ".env"  # -> server/.env
+ENV_FILE = Path(__file__).resolve().parents[3] / ".env"   # -> server/.env
 
 
 class Settings(BaseSettings):
+
     APP_ENV: Literal["local", "staging", "production"] = "local"
 
     SB_DB_PASSWORD_ON_SETUP: SecretStr

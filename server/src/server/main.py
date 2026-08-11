@@ -1,7 +1,6 @@
 """
 Application entrypoint.  Run with:  uv run uvicorn server.main:app
 """
-
 import logging
 
 from fastapi import FastAPI
