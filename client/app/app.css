@@ -2,157 +2,505 @@
 
 /* ---------------------------------------------------------------------------
    book-me-up design tokens.
-   Source of truth: .claude/skills/design-system/references/notion-tokens.md
-   Change a value there and here in the same commit, or the doc starts lying.
+   Source of truth for rationale: .claude/skills/design-system/
+   Change a value here and in references/foundations.md in the same commit,
+   or the doc starts lying.
 
-   NOTE: the radius scale deliberately OVERRIDES Tailwind's defaults
-   (rounded-lg is 12px here, not Tailwind's 8px). Read the scale below rather
-   than assuming Tailwind documentation applies.
+   Two things that will trip you up:
+
+   1. RADIUS OVERRIDES TAILWIND'S DEFAULTS. `rounded-lg` is 12px here, not 8px.
+      Read the scale below rather than assuming Tailwind documentation applies.
+
+   2. SEMANTIC COLORS ARE RUNTIME VARIABLES, NOT STATIC VALUES. They live in
+      the `:root` / `.dark` blocks and are exposed through `@theme inline` so
+      they can swap at runtime. Adding a semantic color to the plain `@theme`
+      block below would inline it and permanently break dark mode for that
+      token. Static scales (type, radius, motion, spacing) stay in `@theme`.
+
+   Every colour pair here was validated against WCAG 2.1 with a script, on
+   every ground it can legally appear on. Do not eyeball a replacement.
 --------------------------------------------------------------------------- */
+
+/* Dark mode fires on BOTH the system preference and an explicit `.dark` class,
+   and `.light` on the root forces light regardless of system setting. The
+   semantic token blocks further down use exactly the same three conditions, so
+   `dark:` utilities and automatic token swapping can never disagree. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:not(.light, .light *)) {
+      @slot;
+    }
+  }
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+}
+
+/* ===========================================================================
+   STATIC SCALES — safe to inline, identical in both themes.
+   =========================================================================== */
 @theme {
-  /* ---- type ------------------------------------------------------------ */
-  /* NotionInter is proprietary; Inter is the documented substitute. */
+  /* ---- families --------------------------------------------------------- */
+  /* Inter carries every UI surface. Bricolage Grotesque is the display voice
+     and is deliberately restricted — see the type scale note below. */
   --font-sans: "Inter", -apple-system, system-ui, "Segoe UI", Helvetica, Arial,
     sans-serif;
+  --font-display: "Bricolage Grotesque", "Inter", -apple-system, system-ui,
+    Helvetica, Arial, sans-serif;
 
-  --text-display-1: 64px;
-  --text-display-1--line-height: 1;
-  --text-display-1--letter-spacing: -2.125px;
+  /* ---- type ------------------------------------------------------------- */
+  /* Mobile-first and fluid. This is a phone product; a flat 64px headline with
+     -2.125px of tracking collapses at 375px, which is what the previous scale
+     did. Sizes clamp, and tracking is expressed in `em` so it scales WITH the
+     clamp instead of staying glued to the desktop value.
+
+     `display-*` and `heading-1` are set in --font-display.
+     Everything from `heading-2` down is Inter. */
+
+  --text-display-1: clamp(2.5rem, 1.5rem + 5vw, 4rem); /* 40 → 64px */
+  --text-display-1--line-height: 1.02;
+  --text-display-1--letter-spacing: -0.033em;
   --text-display-1--font-weight: 700;
 
-  --text-display-2: 54px;
-  --text-display-2--line-height: 1.04;
-  --text-display-2--letter-spacing: -1.875px;
+  --text-display-2: clamp(2.125rem, 1.45rem + 3.4vw, 3.375rem); /* 34 → 54px */
+  --text-display-2--line-height: 1.05;
+  --text-display-2--letter-spacing: -0.031em;
   --text-display-2--font-weight: 700;
 
-  --text-heading-1: 40px;
-  --text-heading-1--line-height: 1.1;
-  --text-heading-1--letter-spacing: -1px;
+  --text-heading-1: clamp(1.75rem, 1.35rem + 2vw, 2.5rem); /* 28 → 40px */
+  --text-heading-1--line-height: 1.12;
+  --text-heading-1--letter-spacing: -0.025em;
   --text-heading-1--font-weight: 700;
 
-  --text-heading-2: 26px;
+  --text-heading-2: clamp(1.375rem, 1.2rem + 0.9vw, 1.625rem); /* 22 → 26px */
   --text-heading-2--line-height: 1.23;
-  --text-heading-2--letter-spacing: -0.625px;
+  --text-heading-2--letter-spacing: -0.024em;
   --text-heading-2--font-weight: 700;
 
-  --text-heading-3: 22px;
+  --text-heading-3: clamp(1.25rem, 1.18rem + 0.4vw, 1.375rem); /* 20 → 22px */
   --text-heading-3--line-height: 1.27;
-  --text-heading-3--letter-spacing: -0.25px;
+  --text-heading-3--letter-spacing: -0.011em;
   --text-heading-3--font-weight: 700;
 
-  --text-title: 20px;
+  --text-title: 1.25rem; /* 20px */
   --text-title--line-height: 1.4;
-  --text-title--letter-spacing: -0.125px;
+  --text-title--letter-spacing: -0.006em;
   --text-title--font-weight: 600;
 
-  --text-body-md: 16px;
+  --text-body-md: 1rem; /* 16px */
   --text-body-md--line-height: 1.5;
-  --text-body-md--letter-spacing: 0;
+  --text-body-md--letter-spacing: 0em;
   --text-body-md--font-weight: 400;
 
-  --text-body-sm: 15px;
-  --text-body-sm--line-height: 1.33;
-  --text-body-sm--letter-spacing: 0;
+  --text-body-sm: 0.9375rem; /* 15px */
+  --text-body-sm--line-height: 1.4;
+  --text-body-sm--letter-spacing: 0em;
   --text-body-sm--font-weight: 400;
 
-  --text-button: 16px;
+  --text-button: 1rem; /* 16px */
   --text-button--line-height: 1.5;
-  --text-button--letter-spacing: 0;
+  --text-button--letter-spacing: 0em;
   --text-button--font-weight: 500;
 
-  --text-caption: 14px;
+  --text-caption: 0.875rem; /* 14px */
   --text-caption--line-height: 1.43;
-  --text-caption--letter-spacing: 0;
+  --text-caption--letter-spacing: 0em;
   --text-caption--font-weight: 400;
 
-  --text-eyebrow: 12px;
+  --text-eyebrow: 0.75rem; /* 12px */
   --text-eyebrow--line-height: 1.33;
-  --text-eyebrow--letter-spacing: 0.125px;
+  --text-eyebrow--letter-spacing: 0.01em;
   --text-eyebrow--font-weight: 600;
 
-  /* ---- structural color ------------------------------------------------ */
-  /* The only color that ever paints an action. */
-  --color-primary: #0075de;
-  --color-primary-active: #005bab;
-  --color-on-primary: #ffffff;
-  /* Full-bleed inverted "night" band. One hero moment per page, not a band. */
-  --color-secondary: #213183;
-
-  /* ---- surface --------------------------------------------------------- */
-  --color-canvas: #ffffff;
-  --color-canvas-soft: #f6f5f4;
-  --color-surface: #ffffff;
-  --color-hairline: #e6e6e6;
-
-  /* ---- ink ------------------------------------------------------------- */
-  --color-ink: #000000;
-  --color-ink-secondary: #31302e;
-  --color-ink-muted: #615d59;
-  --color-ink-faint: #a39e98;
-
-  /* ---- appointment status ---------------------------------------------- */
-  /* One pair per Appointment.status. The bare token is the label/icon color;
-     -tint is the chip background behind it. Every pair clears WCAG AA (4.5:1)
-     on its own tint, on --color-surface, and on --color-canvas-soft, so a
-     status reads correctly as a chip, as bare text, or on either ground.
-
-     These are NOT actions — --color-primary stays the only actionable color.
-     Never encode a status by color alone; see the skill for the label rule. */
-  --color-status-pending: #8a4b04;
-  --color-status-pending-tint: #fdf1e3;
-  --color-status-accepted: #15722c;
-  --color-status-accepted-tint: #e8f6ea;
-  --color-status-rejected: #a4232b;
-  --color-status-rejected-tint: #fceceb;
-  --color-status-cancelled: #615d59;
-  --color-status-cancelled-tint: #f0efee;
-  --color-status-completed: #1f6f6c;
-  --color-status-completed-tint: #e5f3f2;
-  --color-status-no-show: #5c2f74;
-  --color-status-no-show-tint: #f2ebf7;
-
-  /* ---- decorative sticker palette -------------------------------------- */
-  /* Illustrations, icon tiles and category dots ONLY. Never a CTA, never a
-     structural fill. If you are reaching for one of these to paint a button,
-     the answer is --color-primary. */
-  --color-accent-sky: #62aef0;
-  --color-accent-purple: #d6b6f6;
-  --color-accent-purple-deep: #391c57;
-  --color-accent-pink: #ff64c8;
-  --color-accent-orange: #dd5b00;
-  --color-accent-orange-deep: #793400;
-  --color-accent-teal: #2a9d99;
-  --color-accent-green: #1aae39;
-  --color-accent-brown: #523410;
-
-  /* ---- radius (overrides Tailwind defaults — see note above) ----------- */
+  /* ---- radius (overrides Tailwind defaults — see note above) ------------ */
   --radius-xs: 4px; /* form fields, inline chips */
   --radius-sm: 5px; /* menu items, list rows */
   --radius-md: 8px; /* utility + nav buttons */
   --radius-lg: 12px; /* feature cards, illustration frames */
   --radius-xl: 16px; /* large containers, image wells */
+  --radius-2xl: 24px; /* bottom sheets, full-bleed mobile panels */
   --radius-pill: 9999px; /* marketing CTAs, badges, circular icon buttons */
 
+  /* ---- motion ----------------------------------------------------------- */
+  /* Restraint is the whole point: enough movement that the page is not a
+     static document, never enough that it announces itself. Tier rules and
+     usage patterns live in references/motion.md. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1); /* default; calm, Apple-ish */
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1); /* things arriving */
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1); /* things leaving */
+
+  /* Tailwind has an `--ease-*` namespace, so `ease-standard` and
+     `ease-entrance` are real utilities. It has NO `--duration-*` namespace, so
+     `duration-base` is NOT a class and `duration-(--duration-base)` does not
+     compile either. Use the bare numeric utility, which matches these values
+     exactly: duration-120 / duration-200 / duration-320 / duration-520.
+     The variables below stay for hand-written CSS and inline styles. */
+  --duration-fast: 120ms; /* hover, colour, small state flips */
+  --duration-base: 200ms; /* the default for almost everything */
+  --duration-slow: 320ms; /* sheets, drawers, disclosure */
+  --duration-deliberate: 520ms; /* scroll reveals; the slowest allowed */
+
+  /* Vertical travel for a scroll reveal. Small on purpose. */
+  --reveal-distance: 16px;
+}
+
+/* ===========================================================================
+   SEMANTIC COLOUR — swaps between themes. Never move these into `@theme`.
+   =========================================================================== */
+:root {
+  /* ---- surface --------------------------------------------------------- */
+  --canvas: #ffffff;
+  --canvas-soft: #f5f7fa; /* the page ground. Never full-page pure white. */
+  --surface: #ffffff; /* cards, sheets, fields */
+  --surface-sunken: #eef1f6; /* wells, table headers, inset areas */
+
+  /* ---- lines ----------------------------------------------------------- */
+  /* Two border tokens, and they are NOT interchangeable. `hairline` is
+     decorative (card edges, dividers) and is far below 3:1 by design.
+     `border-input` marks an interactive control boundary and clears 3:1 to
+     satisfy WCAG 1.4.11. Putting `hairline` on a text field is a real
+     accessibility bug, not a style preference. */
+  --hairline: #e3e7ec; /* 1.24:1 on white — decorative only */
+  --border-input: #767f8d; /* 4.05:1 on white, 3.77:1 on canvas-soft */
+
+  /* ---- ink ------------------------------------------------------------- */
+  --ink: #0b0f14; /* 19.22:1 on white */
+  --ink-secondary: #2b3440; /* 12.59:1 */
+  --ink-muted: #545f6d; /* 6.49:1 — the floor for body-level copy */
+  --ink-faint: #6e7783; /* 4.54:1 on white, 4.23:1 on soft. See rule below. */
+
+  /* ---- primary --------------------------------------------------------- */
+  /* Split on purpose. `primary` is the FILL — vivid, and white sits on it at
+     4.82:1. `primary-text` is the same blue walked darker so a LINK clears
+     4.5:1 on the soft canvas too. The old single-token blue silently failed
+     that case at 4.25:1. Use the fill for buttons, the text token for links. */
+  --primary: #0b69f5;
+  --primary-hover: #0a5ad0;
+  --primary-active: #094cb0;
+  --primary-text: #0a5ad0; /* 6.20:1 on white, 5.78:1 on canvas-soft */
+  --on-primary: #ffffff;
+  --primary-wash: #e8f0fe; /* selected rows, subtle primary fills */
+
+  /* Inverted band. A deep TRUE blue — not the indigo-verging-purple this
+     system deliberately avoids. White sits on it at 10.42:1. */
+  --deep: #0a3a8f;
+  --on-deep: #ffffff;
+
+  /* ---- danger ---------------------------------------------------------- */
+  /* Destructive ACTIONS only — cancel a booking, delete a service. This is
+     deliberately NOT --status-rejected: a status describes what happened, a
+     danger button asks you to do something. Same split as primary, so
+     `danger` fills and `danger-text` writes. */
+  --danger: #c02626; /* white on it, 5.92:1 */
+  --danger-hover: #a4232b;
+  --danger-active: #8f1e24;
+  --danger-text: #b3242b; /* 6.55:1 on white, 6.11:1 on canvas-soft */
+  --on-danger: #ffffff;
+
+  /* ---- interaction ----------------------------------------------------- */
+  --hover-wash: rgba(11, 15, 20, 0.045); /* hover = a subtle darkening */
+  --press-wash: rgba(11, 15, 20, 0.09);
+  --focus-ring: #0b69f5; /* 4.82:1 on white, 4.49:1 on soft — clears 3:1 */
+
   /* ---- elevation ------------------------------------------------------- */
-  /* Many near-transparent layers, never a hard cast. Most cards use neither
-     of these — a 1px --color-hairline border is the default treatment. */
+  /* Many near-transparent layers, never a hard cast. Most cards use neither —
+     a 1px hairline is the default treatment. */
   --shadow-soft: 0 0.175px 1.041px rgba(0, 0, 0, 0.01),
     0 0.8px 2.925px rgba(0, 0, 0, 0.02), 0 2.025px 7.847px rgba(0, 0, 0, 0.027),
     0 4px 18px rgba(0, 0, 0, 0.04);
-  /* The reference documents only this stack's final stop (0 23px 52px @ 5%);
-     the intermediate stops are interpolated from the soft ramp. */
   --shadow-elevated: 0 0.5px 2px rgba(0, 0, 0, 0.012),
     0 1.6px 6px rgba(0, 0, 0, 0.022), 0 4px 14px rgba(0, 0, 0, 0.03),
     0 9px 28px rgba(0, 0, 0, 0.04), 0 23px 52px rgba(0, 0, 0, 0.05);
+
+  /* ---- appointment status ---------------------------------------------- */
+  /* One pair per Appointment.status. The bare token colours the label and
+     icon; -tint fills the chip behind it. Every pair clears 4.5:1 on its own
+     tint, on --surface, and on --canvas-soft.
+
+     These are NOT actions — --primary stays the only actionable colour.
+     Never encode a status by colour alone; the text label is the accessible
+     channel and the hue only reinforces it. */
+  --status-pending: #8a4b04;
+  --status-pending-tint: #fdf1e3;
+  --status-accepted: #15722c;
+  --status-accepted-tint: #e8f6ea;
+  --status-rejected: #a4232b;
+  --status-rejected-tint: #fceceb;
+  --status-cancelled: #545f6d;
+  --status-cancelled-tint: #eef1f5;
+  --status-completed: #1f6f6c;
+  --status-completed-tint: #e5f3f2;
+  --status-no-show: #5c2f74;
+  --status-no-show-tint: #f2ebf7;
+
+  /* ---- decorative accents ---------------------------------------------- */
+  /* SEMANTICALLY EMPTY. These carry visual rhythm only — alternating icon
+     tiles, illustration blocks, section colour fields. An accent never tells
+     the user anything. If someone must tell A from B, that is an icon or a
+     label, never a tint.
+
+     This rule exists because appointment status already owns amber, green,
+     red, grey, teal and violet. An accent doing semantic work would collide
+     with a status hue almost immediately. */
+  --accent-indigo: #3d5a99;
+  --accent-indigo-tint: #e9edf7;
+  --accent-magenta: #a8306b;
+  --accent-magenta-tint: #fbe9f1;
+  --accent-amber: #b4530a;
+  --accent-amber-tint: #fbeee1;
+  --accent-jade: #2f7d6f;
+  --accent-jade-tint: #e6f4f0;
+
+  /* ---- calendar -------------------------------------------------------- */
+  /* A past or fully-booked day is shaded but must stay READABLE — the number
+     is still information. This clears 3:1 deliberately; do not fade it
+     further, and never drop it to a low-opacity wash. */
+  --day-unavailable: #7e8896; /* 3.35:1 on canvas-soft */
 }
 
-/* Spacing intentionally omitted: the doc's 4/8/12/16/24/28/32 scale is exactly
+/* System preference, unless the root explicitly forces light. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --canvas: #0d1117;
+    --canvas-soft: #0d1117;
+    --surface: #161b22;
+    --surface-sunken: #10151b;
+
+    --hairline: #2a323c;
+    --border-input: #6a7684; /* 3.74:1 on surface, 4.09:1 on canvas */
+
+    --ink: #f2f5f8;
+    --ink-secondary: #c3ccd6;
+    --ink-muted: #98a4b3;
+    --ink-faint: #7d8998;
+
+    /* The fill stays vivid and still carries white at 4.82:1. Only the TEXT
+       blue lightens, because a link must read against a dark ground. */
+    --primary: #0b69f5;
+    --primary-hover: #2f7ffa;
+    --primary-active: #5aa0ff;
+    --primary-text: #5aa0ff; /* 7.13:1 on canvas, 6.51:1 on surface */
+    --on-primary: #ffffff;
+    --primary-wash: #16243a;
+
+    --deep: #08234f;
+    --on-deep: #ffffff;
+
+    /* Fill and its states stay constant across themes — a saturated red reads
+       on both grounds and always carries white. Only the text red lightens. */
+    --danger: #c02626;
+    --danger-hover: #a4232b;
+    --danger-active: #8f1e24;
+    --danger-text: #ff8a88; /* 8.33:1 on canvas, 7.61:1 on surface */
+    --on-danger: #ffffff;
+
+    --hover-wash: rgba(242, 245, 248, 0.06);
+    --press-wash: rgba(242, 245, 248, 0.11);
+    --focus-ring: #5aa0ff;
+
+    /* Shadows barely read on a dark ground; depth comes from the surface
+       stepping lighter instead. Kept non-zero so floating things still
+       separate from what is behind them. */
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+    --shadow-elevated: 0 2px 6px rgba(0, 0, 0, 0.45),
+      0 12px 32px rgba(0, 0, 0, 0.4);
+
+    --status-pending: #f0b264;
+    --status-pending-tint: #3a2a14;
+    --status-accepted: #5fd07d;
+    --status-accepted-tint: #14301c;
+    --status-rejected: #ff8a88;
+    --status-rejected-tint: #3a1d1e;
+    --status-cancelled: #9aa6b5;
+    --status-cancelled-tint: #242b34;
+    --status-completed: #5cc9c3;
+    --status-completed-tint: #123230;
+    --status-no-show: #c79ee0;
+    --status-no-show-tint: #2c1f38;
+
+    --accent-indigo: #93a9dd;
+    --accent-indigo-tint: #1b2437;
+    --accent-magenta: #e78ab5;
+    --accent-magenta-tint: #331c29;
+    --accent-amber: #e5a05f;
+    --accent-amber-tint: #33220f;
+    --accent-jade: #6cc4b2;
+    --accent-jade-tint: #12291f;
+
+    --day-unavailable: #6a7684; /* 3.74:1 on surface */
+  }
+}
+
+/* Explicit override, wins over the system preference. */
+.dark {
+  --canvas: #0d1117;
+  --canvas-soft: #0d1117;
+  --surface: #161b22;
+  --surface-sunken: #10151b;
+
+  --hairline: #2a323c;
+  --border-input: #6a7684;
+
+  --ink: #f2f5f8;
+  --ink-secondary: #c3ccd6;
+  --ink-muted: #98a4b3;
+  --ink-faint: #7d8998;
+
+  --primary: #0b69f5;
+  --primary-hover: #2f7ffa;
+  --primary-active: #5aa0ff;
+  --primary-text: #5aa0ff;
+  --on-primary: #ffffff;
+  --primary-wash: #16243a;
+
+  --deep: #08234f;
+  --on-deep: #ffffff;
+
+  --danger: #c02626;
+  --danger-hover: #a4232b;
+  --danger-active: #8f1e24;
+  --danger-text: #ff8a88;
+  --on-danger: #ffffff;
+
+  --hover-wash: rgba(242, 245, 248, 0.06);
+  --press-wash: rgba(242, 245, 248, 0.11);
+  --focus-ring: #5aa0ff;
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 2px 6px rgba(0, 0, 0, 0.45),
+    0 12px 32px rgba(0, 0, 0, 0.4);
+
+  --status-pending: #f0b264;
+  --status-pending-tint: #3a2a14;
+  --status-accepted: #5fd07d;
+  --status-accepted-tint: #14301c;
+  --status-rejected: #ff8a88;
+  --status-rejected-tint: #3a1d1e;
+  --status-cancelled: #9aa6b5;
+  --status-cancelled-tint: #242b34;
+  --status-completed: #5cc9c3;
+  --status-completed-tint: #123230;
+  --status-no-show: #c79ee0;
+  --status-no-show-tint: #2c1f38;
+
+  --accent-indigo: #93a9dd;
+  --accent-indigo-tint: #1b2437;
+  --accent-magenta: #e78ab5;
+  --accent-magenta-tint: #331c29;
+  --accent-amber: #e5a05f;
+  --accent-amber-tint: #33220f;
+  --accent-jade: #6cc4b2;
+  --accent-jade-tint: #12291f;
+
+  --day-unavailable: #6a7684;
+}
+
+/* ===========================================================================
+   Expose the semantic layer as Tailwind utilities.
+   `inline` is load-bearing: it makes each utility emit `var(--token)` instead
+   of baking the value in, which is what lets the theme swap at runtime.
+   =========================================================================== */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-canvas-soft: var(--canvas-soft);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+
+  --color-hairline: var(--hairline);
+  --color-border-input: var(--border-input);
+
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-text: var(--primary-text);
+  --color-primary-wash: var(--primary-wash);
+  --color-on-primary: var(--on-primary);
+
+  --color-deep: var(--deep);
+  --color-on-deep: var(--on-deep);
+
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-active: var(--danger-active);
+  --color-danger-text: var(--danger-text);
+  --color-on-danger: var(--on-danger);
+
+  --color-hover-wash: var(--hover-wash);
+  --color-press-wash: var(--press-wash);
+  --color-focus-ring: var(--focus-ring);
+
+  --color-status-pending: var(--status-pending);
+  --color-status-pending-tint: var(--status-pending-tint);
+  --color-status-accepted: var(--status-accepted);
+  --color-status-accepted-tint: var(--status-accepted-tint);
+  --color-status-rejected: var(--status-rejected);
+  --color-status-rejected-tint: var(--status-rejected-tint);
+  --color-status-cancelled: var(--status-cancelled);
+  --color-status-cancelled-tint: var(--status-cancelled-tint);
+  --color-status-completed: var(--status-completed);
+  --color-status-completed-tint: var(--status-completed-tint);
+  --color-status-no-show: var(--status-no-show);
+  --color-status-no-show-tint: var(--status-no-show-tint);
+
+  --color-accent-indigo: var(--accent-indigo);
+  --color-accent-indigo-tint: var(--accent-indigo-tint);
+  --color-accent-magenta: var(--accent-magenta);
+  --color-accent-magenta-tint: var(--accent-magenta-tint);
+  --color-accent-amber: var(--accent-amber);
+  --color-accent-amber-tint: var(--accent-amber-tint);
+  --color-accent-jade: var(--accent-jade);
+  --color-accent-jade-tint: var(--accent-jade-tint);
+
+  --color-day-unavailable: var(--day-unavailable);
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-elevated: var(--shadow-elevated);
+}
+
+/* Spacing intentionally omitted: the 4/8/12/16/24/28/32 scale is exactly
    Tailwind's default 4px base, so p-1 p-2 p-3 p-4 p-6 p-7 p-8 already resolve
-   correctly. Adding named aliases would give two spellings for one value. */
+   correctly. Section rhythm is a documented responsive PATTERN
+   (py-16 md:py-24 lg:py-32), not a token — adding named aliases would give two
+   spellings for one value. */
 
 html,
 body {
   @apply bg-canvas-soft text-ink font-sans;
   /* Lining numerals — prices and times should not hop the baseline. */
   font-feature-settings: "lnum" 1, "locl" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Bricolage Grotesque carries an optical-size axis; letting the browser drive
+   it is why the display face holds together at both 40px and 64px. */
+.font-display {
+  font-optical-sizing: auto;
+}
+
+/* Keyboard focus is never removed, only restyled. Any component that overrides
+   this must replace it with something that also clears 3:1. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* Motion is a progressive enhancement and must degrade to nothing. Tier-1
+   reveals are written so that the no-motion state is the VISIBLE state, so
+   this block can safely stop everything without hiding content. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
