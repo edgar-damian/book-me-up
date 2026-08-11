@@ -1,0 +1,39 @@
+# .gitleaks.toml
+#
+# Without this file gitleaks runs its built-in default rules — which is still
+# what we want. [extend] useDefault keeps every default rule active; this file
+# only carves out a known false positive.
+#
+# ---------------------------------------------------------------------------
+# Two things here are load-bearing. Both were established by testing, not docs.
+# ---------------------------------------------------------------------------
+#
+# 1. SINGULAR [allowlist], not [[allowlists]].
+#    The plural array form is silently IGNORED by gitleaks 8.24.3, which is the
+#    version gitleaks-action@v3 pins. A config using [[allowlists]] parses
+#    without error and then does nothing, so the scan fails exactly as if the
+#    file were absent. The singular form works on 8.24.3 and 8.30.1 alike.
+#    If you ever see this allowlist stop working, check the gitleaks version
+#    before you touch the regex.
+#
+# 2. `regexes`, not `paths`.
+#    A `paths` entry excludes the whole FILE from scanning before any rule runs
+#    — it does not filter findings, and matchCondition = "AND" does not narrow
+#    it. Verified: with a `paths` allowlist on .claude/skills/*.md, a planted
+#    Supabase-shaped secret in one of those files went UNDETECTED. With
+#    `regexes` alone, that planted secret is caught while the harmless token
+#    stays quiet. Path allowlists are a blindfold; regex allowlists are a
+#    filter. Keep allowlists keyed on the content of the false positive.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Tailwind duration utility class names. The generic-api-key rule scores
+backtick-quoted tokens like `duration-120` at 3.58 entropy and reports them as
+secrets. They are CSS animation durations documented in prose in
+.claude/skills/design-system/SKILL.md, not credentials. Nothing that matters
+looks like duration-<digits>, so this applies repo-wide.
+"""
+regexes = ['''duration-\d+''']
