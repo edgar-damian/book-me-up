@@ -1,15 +1,17 @@
 import os
 from uuid import uuid4
 
-os.environ.update({
-    "APP_ENV": "local",
-    "SB_DB_PASSWORD_ON_SETUP": "test",
-    "SUPABASE_URL": "https://test.supabase.co",
-    "SUPABASE_JWKS_URL": "https://test.supabase.co/auth/v1/.well-known/jwks.json",
-    "SUPABASE_DB_URL": "postgresql://test",
-    "SUPABASE_SECRET_KEY": "test-secret",
-    "SUPABASE_PUBLISHABLE_KEY": "test-publishable",
-})
+os.environ.update(
+    {
+        "APP_ENV": "local",
+        "SB_DB_PASSWORD_ON_SETUP": "test",
+        "SUPABASE_URL": "https://test.supabase.co",
+        "SUPABASE_JWKS_URL": "https://test.supabase.co/auth/v1/.well-known/jwks.json",
+        "SUPABASE_DB_URL": "postgresql://test",
+        "SUPABASE_SECRET_KEY": "test-secret",
+        "SUPABASE_PUBLISHABLE_KEY": "test-publishable",
+    }
+)
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,6 +22,7 @@ from server.main import app
 @pytest.fixture
 def client():
     return TestClient(app)
+
 
 @pytest.fixture
 def worker_row():
@@ -40,23 +43,31 @@ def worker_row():
         "min_lead_time_min": 60,
         "max_advance_days": 30,
         "cancellation_cutoff_min": 120,
-        "services": [{
-            "id": str(uuid4()), "worker_id": wid,
-            "title": "Skin fade", "description": "Includes lineup.",
-            "image": None, "price_cents": 3500,
-            "duration_min": 45, "is_active": True,
-        }],
-        "chairs": [{
-            "id": str(uuid4()),
-            "establishment": {
-                "id": str(uuid4()), "slug": "downtown-cuts",
-                "name": "Downtown Cuts", "city": "Austin",
-                "timezone": "America/Chicago",
-            },
-            "schedule_days": [
-                {"day_of_week": 2, "start_minute": 540, "end_minute": 1020}
-            ],
-        }],
+        "services": [
+            {
+                "id": str(uuid4()),
+                "worker_id": wid,
+                "title": "Skin fade",
+                "description": "Includes lineup.",
+                "image": None,
+                "price_cents": 3500,
+                "duration_min": 45,
+                "is_active": True,
+            }
+        ],
+        "chairs": [
+            {
+                "id": str(uuid4()),
+                "establishment": {
+                    "id": str(uuid4()),
+                    "slug": "downtown-cuts",
+                    "name": "Downtown Cuts",
+                    "city": "Austin",
+                    "timezone": "America/Chicago",
+                },
+                "schedule_days": [{"day_of_week": 2, "start_minute": 540, "end_minute": 1020}],
+            }
+        ],
     }
 
 

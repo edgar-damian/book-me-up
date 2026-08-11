@@ -6,6 +6,7 @@ every response through the declared `response_model`, so a column accidentally
 added to a SELECT cannot reach a client unless it is also declared here.
 Returning a bare dict from a route bypasses that - don't.
 """
+
 from __future__ import annotations
 
 from enum import StrEnum
@@ -25,6 +26,7 @@ class WorkerLandingPage(BaseModel):
     """
     Object is used to make a landing page dedicated for each worker
     """
+
     class Services(BaseModel):
         model_config = ConfigDict(extra="ignore")
 
@@ -39,8 +41,9 @@ class WorkerLandingPage(BaseModel):
 
     class Chair(BaseModel):
         """
-        A worker has one Chair object per location they work in 
+        A worker has one Chair object per location they work in
         """
+
         class Establishment(BaseModel):
             model_config = ConfigDict(extra="ignore")
             id: UUID
@@ -59,7 +62,6 @@ class WorkerLandingPage(BaseModel):
         id: UUID
         establishment: Establishment
         schedule_days: list[Day]
-
 
     model_config = ConfigDict(extra="ignore")
 
@@ -80,7 +82,6 @@ class WorkerLandingPage(BaseModel):
 
     services: list[Services]
     chairs: list[Chair]
-    
 
 
 class EstablishmentLandingPage(BaseModel):
@@ -98,9 +99,9 @@ class EstablishmentLandingPage(BaseModel):
         bio: str
         image: str | None = None
         is_active: bool
-        
+
     model_config = ConfigDict(extra="ignore")
-    
+
     id: UUID
     slug: str
     name: str
@@ -121,24 +122,24 @@ class EstablishmentLandingPage(BaseModel):
 
 
 class Status(StrEnum):
-    PENDING = 'PENDING'
-    ACCEPTED = 'ACCEPTED'
-    REJECTED = 'REJECTED'
-    CANCELLED = 'CANCELLED'
-    COMPLETED = 'COMPLETED'
-    NO_SHOW = 'NO_SHOW'
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
+    COMPLETED = "COMPLETED"
+    NO_SHOW = "NO_SHOW"
 
 
 class CancelledBy(StrEnum):
-    CLIENT = 'CLIENT'
-    WORKER = 'WORKER'
-    SYSTEM = 'SYSTEM'
+    CLIENT = "CLIENT"
+    WORKER = "WORKER"
+    SYSTEM = "SYSTEM"
 
 
 class WorkerEstablishmentPublic(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    id: UUID 
+    id: UUID
     worker_id: UUID
     establishment_id: UUID
     is_active: bool

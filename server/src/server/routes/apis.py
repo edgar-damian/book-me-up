@@ -47,10 +47,8 @@ def book_with(
         )
 
     if worker is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Barber not found")
+
     return worker
 
 
@@ -85,10 +83,6 @@ def establishment(
         )
 
     if establishment is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Establishment not found"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Establishment not found")
+
     return establishment
-
-

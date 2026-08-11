@@ -1,6 +1,5 @@
-"""
+""" """
 
-"""
 import logging
 
 import httpx
@@ -18,12 +17,14 @@ from server.models.public_models import (
 logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
+
 def _build_client(key: str) -> Client:
     return create_client(
         settings.SUPABASE_URL,
         key,
         options=ClientOptions(httpx_client=httpx.Client(timeout=_TIMEOUT)),
     )
+
 
 public_db: Client = _build_client(settings.SUPABASE_PUBLISHABLE_KEY.get_secret_value())
 admin_db: Client = _build_client(settings.SUPABASE_SECRET_KEY.get_secret_value())
@@ -49,7 +50,7 @@ _ESTABLISHMENT_PUBLIC_COLS = _cols(
     workers=f"workers:worker_establishment(...worker_profile!inner({_WORKER_CARD_COLS}))",
 )
 
-# groups by chair and establishment, so if a worker 
+# groups by chair and establishment, so if a worker
 # works at 2 establishments we get 2 objects
 _CHAIR_COLS = _cols(
     WorkerLandingPage.Chair,
@@ -62,6 +63,7 @@ _WORKER_PROFILE_PUBLIC_COLS = _cols(
     services=f"services:service({_cols(WorkerLandingPage.Services)})",
     chairs=f"chairs:worker_establishment({_CHAIR_COLS})",
 )
+
 
 def get_worker_by_slug(slug: str) -> WorkerLandingPage | None:
     """
@@ -126,7 +128,7 @@ def get_establishment_by_slug(slug: str) -> EstablishmentLandingPage | None:
             .select(_ESTABLISHMENT_PUBLIC_COLS)
             .eq("slug", slug)
             .eq("is_active", True)
-            .eq("worker_establishment.is_active", True)   # filters the embed
+            .eq("worker_establishment.is_active", True)  # filters the embed
             .limit(1)
             .execute()
         )

@@ -2,6 +2,7 @@
 This test insures that PII cols from the User table are not able to
 be obtained by other tables
 """
+
 from server.models.public_models import (
     EstablishmentLandingPage,
     WorkerLandingPage,
