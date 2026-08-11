@@ -1,0 +1,62 @@
+version: 2
+updates:
+  # ---------------------------------------------------------------- server
+  # Reads server/pyproject.toml + server/uv.lock
+  - package-ecosystem: "uv"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(server)"
+    groups:
+      server-minor-and-patch:
+        update-types: ["minor", "patch"]
+      server-dev-tooling:
+        patterns: ["pytest*", "ruff", "sqlacodegen", "psycopg2-binary"]
+        update-types: ["minor", "patch", "major"]
+
+  # ---------------------------------------------------------------- client
+  # Reads client/package.json + client/package-lock.json
+  - package-ecosystem: "npm"
+    directory: "/client"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(client)"
+    groups:
+      client-minor-and-patch:
+        update-types: ["minor", "patch"]
+      react-router:
+        patterns: ["react-router", "@react-router/*"]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      tailwind:
+        patterns: ["tailwindcss", "@tailwindcss/*"]
+
+  # --------------------------------------------------------- github actions
+  # Scans .github/workflows/*.yml from the repo root.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        update-types: ["minor", "patch", "major"]
+
+  # ---------------------------------------------------------------- docker
+  # client/Dockerfile pins node:24-alpine across four stages.
+  - package-ecosystem: "docker"
+    directory: "/client"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(docker)"
