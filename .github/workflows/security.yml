@@ -1,0 +1,101 @@
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 13 * * 1"
+
+permissions:
+  contents: read
+
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks needs full history to scan past commits
+          persist-credentials: false
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+  sast:
+    name: static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - run: pip install semgrep
+
+      - name: semgrep
+        run: |
+          semgrep \
+            --config p/python \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/react \
+            --config p/sql-injection \
+            --metrics=off \
+            --error
+
+
+  deps:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: audit python deps
+        working-directory: ./server
+        run: |
+          uv export --no-hashes --no-emit-project --format requirements-txt > /tmp/req.txt
+          uvx pip-audit --no-deps --disable-pip -r /tmp/req.txt
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24" # matches client/Dockerfile's node:24-alpine
+
+      - name: audit node deps
+        working-directory: ./client
+        run: npm audit --audit-level=high
+
+  workflows:
+    name: audit ci config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: zizmor
+        run: uvx zizmor .github/workflows/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -1,17 +1,20 @@
 """
 
 """
-import httpx
 import logging
+
+import httpx
 from postgrest import APIError
 from pydantic import BaseModel, ValidationError
 from supabase import Client, ClientOptions, create_client
+
 from server.core.config import settings
 from server.models.public_models import (
-    to_public,
-    WorkerLandingPage,
     EstablishmentLandingPage,
+    WorkerLandingPage,
+    to_public,
 )
+
 logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 

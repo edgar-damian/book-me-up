@@ -1,12 +1,11 @@
 from fastapi import APIRouter, HTTPException, Path, status
-from server.models.public_models import WorkerLandingPage, EstablishmentLandingPage
+
+from server.models.public_models import EstablishmentLandingPage, WorkerLandingPage
 from server.supabase.sb_function import (
-    DatabaseUnavailable, 
-    get_worker_by_slug,
+    DatabaseUnavailable,
     get_establishment_by_slug,
-
+    get_worker_by_slug,
 )
-
 
 router = APIRouter()
 
