@@ -142,6 +142,16 @@
 
   /* Vertical travel for a scroll reveal. Small on purpose. */
   --reveal-distance: 16px;
+
+  /* Seconds of drift per photo in the establishment marquee. The component
+     multiplies this by the tile count, so the strip travels at one constant
+     speed no matter how many photos a shop uploaded — tune the feel here and
+     three photos and thirty stay in step.
+
+     This is the one value in the system that exceeds the 520ms ceiling, and
+     deliberately: that ceiling governs a thing arriving or leaving, and a
+     continuous ambient loop never arrives. See the marquee's own notes. */
+  --marquee-step: 6s;
 }
 
 /* ===========================================================================
@@ -477,6 +487,20 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Fragment links (#features, #pricing, …) travel instead of cutting, so a jump
+   between sections reads as scrolling rather than as a hard edit. The
+   reduced-motion block at the bottom of this file already forces this back to
+   `auto`, so it needs no guard of its own.
+
+   Scoped to the landing page rather than set globally on `html`, because
+   root.tsx renders <ScrollRestoration />, which calls window.scrollTo on every
+   route change. Global smooth scrolling would make a navigation from the bottom
+   of the landing page to /establishments/:slug animate a long scroll up through
+   the newly rendered page. */
+html:has(#landing-root) {
+  scroll-behavior: smooth;
+}
+
 /* Bricolage Grotesque carries an optical-size axis; letting the browser drive
    it is why the display face holds together at both 40px and 64px. */
 .font-display {
@@ -502,5 +526,60 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ===========================================================================
+   Photo marquee — the establishment page's one tier-2 move.
+
+   The track holds the tile list TWICE and slides exactly one copy's width, so
+   the moment it reaches -50% it is pixel-identical to where it started and the
+   loop is invisible. Two things that must hold for that to be true:
+
+     1. Tiles are spaced with a right margin, never `gap`. With `gap` the track
+        is 2S + (2n-1)g wide, so -50% lands half a gap short and the seam
+        visibly hitches once per loop.
+     2. Only `transform` is animated, so the whole thing stays on the compositor.
+
+   The block above would leave this animation stranded at its final frame under
+   reduced motion rather than stopping it cleanly — an iteration count of 1 at
+   0.01ms just jumps to the end. So the component never applies `.marquee-track`
+   at all unless JS has confirmed motion is welcome. Static is the honest state.
+   =========================================================================== */
+@keyframes marquee-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.marquee-track {
+  animation: marquee-drift linear infinite;
+}
+
+/* Alpha-only edge fade. A mask needs no colour, so it survives a theme flip
+   that a gradient-to-background overlay would not. The fade is narrow on a
+   phone on purpose — 4rem a side eats a third of a 375px screen. */
+.marquee-mask {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 2rem,
+    black calc(100% - 2rem),
+    transparent
+  );
+}
+
+@media (width >= 48rem) {
+  .marquee-mask {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 4rem,
+      black calc(100% - 4rem),
+      transparent
+    );
   }
 }

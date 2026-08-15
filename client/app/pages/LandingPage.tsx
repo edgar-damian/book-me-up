@@ -1,441 +1,37 @@
+import { useEffect, useRef, useState } from "react";
 import {
-  Children,
-  cloneElement,
-  isValidElement,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+  Container,
+  Cta,
+  Glyph,
+  Reveal,
+  Wordmark,
+  IconCalendar,
+  IconCalendarOff,
+  IconCheck,
+  IconClock,
+  IconLash,
+  IconLink,
+  IconMenuList,
+  IconNote,
+  IconPiercing,
+  IconPolish,
+  IconScissors,
+  IconShieldCheck,
+  IconStorefront,
+  IconTattoo,
+  IconTimer,
+  IconWaves,
+} from "~/widgets/kit";
 
-/* ===========================================================================
-   book-me-up — landing page
-   ===========================================================================
-
-   HOW THIS FILE IS ORGANISED
-
-   Everything below the SHARED KIT is a self-contained section. Each one is
-   fenced by a banner comment, owns its own content array, exports its own
-   component, and reads nothing from its neighbours.
-
-     - To DELETE a section  → remove its banner-to-banner block, then remove
-                              its line from <LandingPage> at the bottom.
-     - To REORDER           → move its line in <LandingPage>. Nothing else.
-     - To DUPLICATE         → copy the block, rename the component and its
-                              content const, add a line to <LandingPage>.
-     - To EDIT content      → the const at the top of each block is the whole
-                              editable surface. Add an array entry, get a card.
-
-   The SHARED KIT (container, buttons, reveal, icons) is the only thing
-   sections depend on. Leave it in place even if you delete every section.
-
-   DESIGN SYSTEM — see .claude/skills/design-system/
-   Every value here is a token utility from client/app/app.css. No raw hex, no
-   arbitrary values. Two things that bite: `rounded-lg` is 12px here (not
-   Tailwind's 8px), and `duration-base` is not a class (use `duration-200`).
-
-   ONE MOVE PER SECTION — each section gets exactly one expressive gesture:
-     Hero .............. floating widget
-     Verticals ......... accent block
-     Feature rows ...... motion reveal
-     Capabilities ...... oversized display line
-     Pricing ........... floating widget
-     CTA band .......... inverted band
-   Header and footer are chrome and get none. Don't stack two moves in one
-   section — that's the thing that makes a page read busy.
-
-   MOTION — Tier 1 only. Hover transitions plus fade-rise-and-settle scroll
-   reveals, driven by one shared IntersectionObserver. No dependencies. If JS
-   never runs, or the visitor prefers reduced motion, everything renders
-   plainly visible: the unanimated state IS the visible state.
-
-   To retune how strong the scrolling feels, edit the REVEAL block in the
-   shared kit. It is the single dial — no section hardcodes a distance,
-   duration or delay of its own.
-   =========================================================================== */
-
-/* ###########################################################################
-   SHARED KIT — used by every section. Not a section itself.
-   ########################################################################### */
-
-/** Page gutter and max width. Mobile gutters are px-4, widening at md. */
-function Container({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={`mx-auto w-full max-w-6xl px-4 md:px-6 ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-/* --- scroll reveal -------------------------------------------------------
-   One IntersectionObserver shared by every <Reveal> on the page, rather than
-   one per element. Targets unobserve themselves after the first trigger —
-   content that re-animates every time you scroll past is the single most
-   common way this reads as gimmicky.
-
-   >>> STRENGTH DIAL <<<
-   Everything about how hard the reveal hits lives in REVEAL below. Turn the
-   numbers down to calm it, up to push it. Two of them are not negotiable and
-   are marked as such: 520ms is the system's hard ceiling on any animation,
-   and the easings are calm on purpose — a spring or an overshoot is the
-   fastest way to make this product read as amateur.                        */
-
-const REVEAL = {
-  /** Multiplier on --reveal-distance (16px, set in app.css). 1 = the system
-      default of 16px. 1.75 ≈ 28px: clearly felt, still short of the "page is
-      assembling itself" look that long travel produces. Past ~2.5 it starts
-      reading as a slideshow. */
-  travel: 1.75,
-
-  /** Starting scale. Keep it close to 1 — at this distance it reads as the
-      content settling into place rather than as a zoom. 1 disables it. */
-  //scale: 0.985,
-  scale: 0.9,
-
-  /** ms between staggered siblings. */
-  stagger: 70,
-
-  /** Hard cap on how many siblings stagger. Everything past this shares the
-      last delay, so a 12-item grid never turns into a 12-step cascade. */
-  staggerCap: 4,
-
-  /** How far into the viewport an element must travel before it fires. The
-      negative bottom margin is what makes the motion *visible* — with a 0
-      margin things finish animating while still near the fold and you barely
-      catch them. More negative = later = more of the motion is on screen. */
-  rootMargin: "0px 0px -12% 0px",
-} as const;
-
-type RevealFrom = "below" | "left" | "right";
-
-/** Offset is derived from the --reveal-distance token rather than hardcoded,
-    so retuning the token in app.css still moves this. */
-function offsetFor(from: RevealFrom) {
-  const d = `calc(var(--reveal-distance) * ${REVEAL.travel})`;
-  if (from === "left") return `translate3d(calc(${d} * -1), 0, 0)`;
-  if (from === "right") return `translate3d(${d}, 0, 0)`;
-  return `translate3d(0, ${d}, 0)`;
-}
-
-let sharedObserver: IntersectionObserver | null = null;
-const revealCallbacks = new WeakMap<Element, () => void>();
-
-function observeOnce(el: Element, onVisible: () => void) {
-  if (!sharedObserver) {
-    sharedObserver = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          revealCallbacks.get(entry.target)?.();
-          revealCallbacks.delete(entry.target);
-          sharedObserver?.unobserve(entry.target);
-        }
-      },
-      // threshold 0 rather than a fraction: a section taller than the viewport
-      // can never satisfy "15% of me is visible", and would sit invisible
-      // forever. The rootMargin above does the "wait until it's properly on
-      // screen" job instead, and does it for tall elements too.
-      { threshold: 0, rootMargin: REVEAL.rootMargin },
-    );
-  }
-  revealCallbacks.set(el, onVisible);
-  sharedObserver.observe(el);
-  return () => {
-    revealCallbacks.delete(el);
-    sharedObserver?.unobserve(el);
-  };
-}
-
-/**
- * Fades, rises (or slides) and settles as it enters the viewport.
- *
- * Reveal GROUPS, not elements — wrap a whole card grid, not each card.
- * Animating twelve cards individually is the vibecoded look. `stagger` walks
- * the group's direct children instead, capped at REVEAL.staggerCap steps.
- *
- * Renders visible and untouched until the effect runs, so no-JS and
- * reduced-motion visitors get plain content rather than a blank page.
- *
- * @param from     Direction the content travels in from. Horizontal is what
- *                 the alternating feature rows use.
- * @param stagger  Stagger the direct children instead of moving the container.
- * @param delay    ms held before this group starts.
- */
-function Reveal({
-  children,
-  delay = 0,
-  from = "below",
-  stagger = false,
-  className = "",
-}: {
-  children: React.ReactNode;
-  delay?: number;
-  from?: RevealFrom;
-  stagger?: boolean;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [armed, setArmed] = useState(false);
-  const [shown, setShown] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    // Never reveal above the fold. Anything already on screen at load stays
-    // put — animating content the visitor is already looking at just delays
-    // the thing they came for, and arming it here would flash.
-    if (el.getBoundingClientRect().top < window.innerHeight) return;
-    setArmed(true);
-    return observeOnce(el, () => setShown(true));
-  }, []);
-
-  // Empty until armed, which is what keeps the no-JS and reduced-motion state
-  // identical to the finished state.
-  const revealStyle = (extraDelay: number): React.CSSProperties =>
-    armed
-      ? {
-          transition:
-            "opacity var(--duration-deliberate) var(--ease-entrance), " +
-            "transform var(--duration-deliberate) var(--ease-entrance)",
-          transitionDelay: `${delay + extraDelay}ms`,
-          opacity: shown ? 1 : 0,
-          transform: shown
-            ? "none"
-            : `${offsetFor(from)} scale(${REVEAL.scale})`,
-        }
-      : {};
-
-  const body = stagger
-    ? Children.map(children, (child, index) => {
-        if (!isValidElement(child)) return child;
-        const step =
-          Math.min(index, REVEAL.staggerCap - 1) * REVEAL.stagger;
-        const props = child.props as { style?: React.CSSProperties };
-        return cloneElement(child as React.ReactElement<{ style?: React.CSSProperties }>, {
-          style: { ...props.style, ...revealStyle(step) },
-        });
-      })
-    : children;
-
-  return (
-    <div
-      ref={ref}
-      className={className}
-      // When staggering, the container holds still and the children move.
-      style={stagger ? undefined : revealStyle(0)}
-    >
-      {body}
-    </div>
-  );
-}
-
-/* --- buttons -------------------------------------------------------------
-   Marketing CTAs are rounded-pill; nav and utility buttons are rounded-md.
-   That contrast is how the page signals "this is the one action" versus
-   "this is a control." Only one primary per view.                          */
-
-type CtaVariant = "primary" | "secondary" | "on-deep";
-
-const CTA_BASE =
-  "inline-flex min-h-11 items-center justify-center gap-2 rounded-pill px-6 py-3 " +
-  "text-button transition duration-120 ease-standard active:scale-[0.98]";
-
-const CTA_VARIANTS: Record<CtaVariant, string> = {
-  primary:
-    "bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active",
-  secondary:
-    "border border-border-input bg-surface text-ink hover:bg-hover-wash active:bg-press-wash",
-  // On the inverted band the fill flips to white and the label goes deep blue
-  // — white sits on `deep` at 10.42:1 in both themes, which a primary-on-deep
-  // pairing would not clear.
-  "on-deep": "bg-on-deep text-deep hover:opacity-90",
-};
-
-function Cta({
-  href,
-  variant = "primary",
-  className = "",
-  children,
-}: {
-  href: string;
-  variant?: CtaVariant;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <a href={href} className={`${CTA_BASE} ${CTA_VARIANTS[variant]} ${className}`}>
-      {children}
-    </a>
-  );
-}
-
-/* --- icons ---------------------------------------------------------------
-   Rounded, stroke-based, currentColor. The vertical set is deliberately half
-   barbering and half everything else — nails, tattoo, lashes, locs, piercing
-   — because imagery that reads "barbershop" tells half the market this
-   product isn't for them. No poles, no straight razors, no checkerboard.    */
-
-function Glyph({
-  children,
-  className = "size-6",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
-}
-
-type GlyphProps = { className?: string };
-
-const IconScissors = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <circle cx="6" cy="18" r="2.6" />
-    <circle cx="18" cy="18" r="2.6" />
-    <path d="M7.9 16.1 19.5 4.5M16.1 16.1 4.5 4.5" />
-  </Glyph>
-);
-
-const IconWaves = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="M3 7c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0 3 2 4.5 0" />
-    <path d="M3 12c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0 3 2 4.5 0" />
-    <path d="M3 17c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0 3 2 4.5 0" />
-  </Glyph>
-);
-
-const IconPolish = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="M10 2.5h4v3h-4z" />
-    <path d="M9 8.6a2.2 2.2 0 0 1 1.3-2l.2-1.1h3l.2 1.1a2.2 2.2 0 0 1 1.3 2V19.5a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2Z" />
-    <path d="M9 12.5h6" />
-  </Glyph>
-);
-
-const IconTattoo = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="m15.5 3.5 5 5" />
-    <path d="M18 6 8.5 15.5a3 3 0 0 0-.8 1.4L6.5 21l4.1-1.2a3 3 0 0 0 1.4-.8L21.5 9.5" />
-    <path d="M4 21h3" />
-  </Glyph>
-);
-
-const IconLash = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="M2.5 13.5s3.6-5.5 9.5-5.5 9.5 5.5 9.5 5.5-3.6 5.5-9.5 5.5S2.5 13.5 2.5 13.5Z" />
-    <circle cx="12" cy="13.5" r="2.4" />
-    <path d="M6.2 7.6 5 5.4M12 6.4V3.9M17.8 7.6 19 5.4" />
-  </Glyph>
-);
-
-const IconPiercing = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <circle cx="12" cy="13" r="7" />
-    <circle cx="12" cy="6" r="1.8" />
-  </Glyph>
-);
-
-const IconCalendar = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <rect x="3" y="5" width="18" height="16" rx="2.5" />
-    <path d="M3 10h18M8 3v4M16 3v4" />
-  </Glyph>
-);
-
-const IconMenuList = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="M9 7h11M9 12h11M9 17h11" />
-    <path d="M4.5 7h.01M4.5 12h.01M4.5 17h.01" />
-  </Glyph>
-);
-
-const IconLink = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="M10.5 13.5a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.7 1.7" />
-    <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.7-1.7" />
-  </Glyph>
-);
-
-const IconNote = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="M5 4.5A1.5 1.5 0 0 1 6.5 3h11A1.5 1.5 0 0 1 19 4.5v15L15.5 17 12 19.5 8.5 17 5 19.5Z" />
-    <path d="M9 8h6M9 12h4" />
-  </Glyph>
-);
-
-const IconCalendarOff = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <rect x="3" y="5" width="18" height="16" rx="2.5" />
-    <path d="M3 10h18M8 3v4M16 3v4" />
-    <path d="m9.5 14.5 5 4M14.5 14.5l-5 4" />
-  </Glyph>
-);
-
-const IconClock = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 7v5.2l3.2 2" />
-  </Glyph>
-);
-
-const IconStorefront = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="M3.5 9.5h17V20a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1Z" />
-    <path d="M3 9.5 4.6 4a1 1 0 0 1 1-.7h12.8a1 1 0 0 1 1 .7L21 9.5" />
-    <path d="M9.5 21v-6h5v6" />
-  </Glyph>
-);
-
-const IconCheck = (p: GlyphProps) => (
-  <Glyph {...p}>
-    <path d="m4.5 12.5 5 5 10-11" />
-  </Glyph>
-);
-
-/** Wordmark lockup. Used by the header and the footer. */
-function Wordmark({ className = "" }: { className?: string }) {
-  return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
-      <span
-        className="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-on-primary"
-        aria-hidden="true"
-      >
-        <IconScissors className="size-4" />
-      </span>
-      <span className="font-display text-title font-bold tracking-tight text-ink">
-        book-me-up
-      </span>
-    </span>
-  );
-}
-
-/* ###########################################################################
-   SECTION 01 — SITE HEADER
-   Sticky top bar with a mobile drawer. Chrome, so it gets no expressive move.
-   ########################################################################### */
-
+/*
+Landing page header with a drop down menu (on mobile) or 
+*/
 const NAV_LINKS = [
   { label: "Features", href: "#features" },
   { label: "Who it's for", href: "#verticals" },
   { label: "Pricing", href: "#pricing" },
+  { label: "Contact Us", href: "#pricing"},
+  { label: "Free Trial", href: "#pricing"}
 ];
 
 export function SiteHeader() {
@@ -444,8 +40,8 @@ export function SiteHeader() {
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  // The bar only earns a shadow once the page has moved under it. Flip-guarded
-  // so this sets state twice per page, not once per scroll event.
+
+  // makes a shadow on the header AFTER the user scrolls down
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
@@ -523,7 +119,7 @@ export function SiteHeader() {
               ))}
             </ul>
           </nav>
-
+          
           <div className="hidden items-center gap-2 md:flex">
             <a
               href="#login"
@@ -614,25 +210,21 @@ export function SiteHeader() {
   );
 }
 
-/* ###########################################################################
-   SECTION 02 — HERO
-   ONE MOVE: floating widget. The schedule card is lifted off the canvas with
-   shadow-soft; nothing else in this section is doing anything expressive.
-   Deliberately not wrapped in <Reveal> — never animate above the fold.
-   ########################################################################### */
-
+/*
+Uses `Hero()` to build the top part of the landing page, this is what the users 
+first see. 
+NOTE: Refine this later
+*/
 const HERO = {
-  eyebrow: "Booking for people who work a chair",
-  headline: "Take bookings without taking calls.",
-  body: "Share one link. Your calendar fills itself, reminders go out on their own, and nobody double-books your chair. Set it up between clients.",
-  primaryCta: { label: "Get started", href: "#get-started" },
+  eyebrow: "For barbers, stylists, and artists who rent their chair",
+  headline: "Stop booking clients in your DMs.",
+  body: "Share one link. Clients pick a time that's actually open, reminders go out on their own, and nobody double-books your chair.",
+  primaryCta: { label: "Create my booking link", href: "#get-started" },
   secondaryCta: { label: "See how it works", href: "#features" },
-  footnote: "Works from your phone. Your clients never install anything.",
+  footnote: "Set up in 5 minutes from your phone. Clients book in two taps — no app, no account.",
 };
 
-/** Sample day inside the floating widget. Status chips always carry a text
-    label — colour alone is never the channel, and accepted-green next to
-    rejected-red is a deuteranopia confusion pair. */
+// TODO: this will be replaced by a screen shot of the working product 
 const HERO_WIDGET_DAY = [
   {
     time: "9:00 AM",
@@ -681,7 +273,7 @@ export function Hero() {
             <p className="mt-6 text-caption text-ink-muted">{HERO.footnote}</p>
           </div>
 
-          {/* THE MOVE — a product surface floating off the page. */}
+          {/* TODO: this will be replaced by a screen shot of the working product  */}
           <div className="rounded-xl bg-surface p-6 shadow-soft">
             <div className="flex items-baseline justify-between">
               <p className="text-heading-3 text-ink">Tuesday</p>
@@ -724,18 +316,12 @@ export function Hero() {
   );
 }
 
-/* ###########################################################################
-   SECTION 03 — VERTICALS
-   ONE MOVE: accent block. The tinted icon tiles are the gesture.
-
-   The accents are SEMANTICALLY EMPTY — they carry rhythm, nothing else. The
-   icon identifies the vertical, never the colour. Rotate the accent by index
-   and it stays honest.
-   ########################################################################### */
-
-const VERTICALS_HEADING = "Barbers first. Everyone who works a chair, next.";
+/*
+Builds a vertical stack of possible positions/roles the `Worker` is
+*/
+const VERTICALS_HEADING = "Same setup, whatever's behind your chair.";
 const VERTICALS_BODY =
-  "If you book time and people sit down, this fits. Nothing here assumes a barbershop.";
+  "Clippers, color, needles, or lashes — you're still one person with a link, a calendar, and a client who needs to show up on time.";
 
 const VERTICALS = [
   { label: "Barbering", Icon: IconScissors },
@@ -787,21 +373,10 @@ export function Verticals() {
   );
 }
 
-/* ###########################################################################
-   SECTION 04 — FEATURE ROWS
-   ONE MOVE: motion reveal. Rows arrive in sequence as you scroll, alternating
-   sides on desktop. No shadows in here — the media wells sit flat inside
-   `surface-sunken` so this section doesn't also claim the floating-widget
-   move that the hero and pricing already use.
 
-   To ADD a row: append to FEATURE_ROWS and write a small vignette component.
-   Rows alternate automatically by index.
-   ########################################################################### */
-
+// TODO: whole section has to go. its all bad, should be replaced with screen shots
+// look for `END OF NOTE`
 const FEATURES_HEADING = "Everything a chair needs, nothing it doesn't.";
-
-/** Small token-built product vignettes. They stand in for screenshots — no
-    illustration style exists yet, and grey placeholder boxes read as unfinished. */
 
 function VignetteSchedule() {
   return (
@@ -953,10 +528,6 @@ export function FeatureRows() {
 
         <div className="mt-12 flex flex-col gap-16 md:gap-24">
           {FEATURE_ROWS.map(({ Icon, title, body, points, Vignette }, index) => (
-            // THE MOVE — each row is its own reveal group, so the section
-            // assembles as you scroll instead of arriving all at once. Rows
-            // travel in from the side their copy sits on, which alternates
-            // with the layout and reads as deliberate rather than as noise.
             <Reveal
               key={title}
               from={index % 2 === 1 ? "right" : "left"}
@@ -988,31 +559,29 @@ export function FeatureRows() {
     </section>
   );
 }
+// END OF NOTE
 
-/* ###########################################################################
-   SECTION 05 — CAPABILITIES
-   ONE MOVE: oversized display line. The headline runs at display-2 and the
-   cards stay plain — flat, hairline-bordered, monochrome icons. Do not add
-   accent tiles here; the verticals strip already owns that gesture.
-   ########################################################################### */
+/*
+List off some capabilities
+*/
 
-const CAPABILITIES_HEADING = "The parts nobody thinks about until they bite.";
+const CAPABILITIES_HEADING = "You make the rules. Your link enforces them.";
 
 const CAPABILITIES = [
   {
+    Icon: IconShieldCheck,
+    title: "Approve every client, or none of them",
+    body: "Screen each request one by one if you're picky, or let the book fill itself while you work. Flip it whenever you feel like it.",
+  },
+  {
     Icon: IconCalendarOff,
-    title: "Time off that actually blocks",
-    body: "Take Tuesday off and you're gone from every shop you work, not just the one you remembered to update.",
+    title: "Close the book whenever you want",
+    body: "Block an hour, an afternoon, or all of August. You go dark everywhere you work at once — no updating three calendars.",
   },
   {
-    Icon: IconClock,
-    title: "Holds that expire on their own",
-    body: "Unconfirmed bookings hold the slot for a day, then release themselves. You never have to chase someone who went quiet.",
-  },
-  {
-    Icon: IconStorefront,
-    title: "Two shops, one you",
-    body: "Different hours and different chairs per shop, one set of services and one set of rules. Even across time zones.",
+    Icon: IconTimer,
+    title: "Nobody books you back-to-back",
+    body: "Set breathing room between clients, cap how many you take in a day, and shut off last-minute requests before they land.",
   },
 ];
 
@@ -1020,7 +589,6 @@ export function Capabilities() {
   return (
     <section className="py-16 md:py-24 lg:py-32">
       <Container>
-        {/* THE MOVE — the headline itself is the gesture. */}
         <h2 className="max-w-3xl font-display text-display-2 text-ink">
           {CAPABILITIES_HEADING}
         </h2>
@@ -1044,63 +612,56 @@ export function Capabilities() {
   );
 }
 
-/* ###########################################################################
-   SECTION 06 — PRICING
-   ONE MOVE: floating widget. The recommended plan lifts off the row with
-   shadow-soft and drops its border; the others stay flat with a hairline.
 
-   >>> PRICES ARE NOT SET. <<<
-   Every `price` below is a placeholder em-dash. The design system's voice rule
-   is "numbers only when they are real," so nothing here invents a figure.
-   Replace the three `price` strings and delete PRICING_NOTE when you have
-   real numbers. Until then this section renders visibly unfinished on purpose.
-   ########################################################################### */
+/* 
+Pricing section
+*/
 
-const PRICING_HEADING = "One plan per chair. No percentage of your day.";
+const PRICING_HEADING = "Everyone pays for their own chair. Bring friends and it gets cheaper.";
 const PRICING_NOTE =
-  "Pricing isn't set yet — these are placeholders while we work it out.";
+  "Early pricing while we're getting off the ground. No setup fee, no contract, cancel whenever.";
 
 const PRICING_PLANS = [
   {
     name: "Solo",
-    price: "$—", // TODO: real price
+    price: "$20",
     cadence: "per month",
-    blurb: "One chair, one calendar.",
+    blurb: "You, your book, your clients.",
     features: [
-      "Your booking link",
-      "Unlimited services",
+      "Your own booking link",
+      "Unlimited services and appointments",
       "Automatic reminders",
-      "Client notes",
+      "Client notes and history",
     ],
     cta: { label: "Get started", href: "#get-started" },
     recommended: false,
   },
   {
     name: "Shop",
-    price: "$—", // TODO: real price
-    cadence: "per chair, per month",
-    blurb: "A few chairs under one roof.",
+    price: "$15",
+    cadence: "per person, per month",
+    blurb: "Same setup, $5 off each, when 3+ of you work the same shop.",
     features: [
-      "Everything in Solo",
-      "Multiple workers and chairs",
-      "Owner view across the shop",
-      "Cancellation and no-show rules",
+      "Everything in Solo, for each person",
+      "Everyone keeps their own link and calendar",
+      "Optional shop page that lists all of you",
+      "Owner view across the floor, if you want one",
     ],
     cta: { label: "Get started", href: "#get-started" },
     recommended: true,
   },
   {
-    name: "Multi-shop",
-    price: "$—", // TODO: real price
-    cadence: "per chair, per month",
-    blurb: "More than one address.",
+    name: "Yearly",
+    price: "$150",
+    cadence: "per person, per year",
+    blurb: "Pay once, skip the monthly bill.",
     features: [
-      "Everything in Shop",
-      "Per-location hours and time zones",
-      "Workers who float between shops",
-      "Priority support",
+      "Everything above, billed once a year",
+      "Cheaper than 12 months either way",
+      "Solo or shop, same yearly price",
+      "One less thing to think about",
     ],
-    cta: { label: "Talk to us", href: "#contact" },
+    cta: { label: "Get started", href: "#get-started" },
     recommended: false,
   },
 ];
@@ -1120,7 +681,6 @@ export function Pricing() {
           {PRICING_PLANS.map((plan) => (
             <div
               key={plan.name}
-              // THE MOVE — one card floats, the rest sit flat.
               className={`flex flex-col rounded-xl bg-surface p-6 ${
                 plan.recommended
                   ? "shadow-soft md:-my-4 md:py-10"
@@ -1170,25 +730,21 @@ export function Pricing() {
   );
 }
 
-/* ###########################################################################
-   SECTION 07 — CTA BAND
-   ONE MOVE: inverted band. One dark island in a light page — ration it, don't
-   repeat it. The CTA flips to a white fill because primary-on-deep wouldn't
-   carry enough contrast in either theme.
-   ########################################################################### */
+/* 
+CTA band, currently shows a 3 month promotion
+*/
 
 const CTA_BAND = {
   heading: "Set it up tonight. Take bookings tomorrow.",
-  body: "Add your services, set your hours, share your link. That's the whole setup.",
-  primary: { label: "Get started", href: "#get-started" },
-  secondary: { label: "Or see what it costs", href: "#pricing" },
+  body: "Your first 3 months are free while early pricing lasts. No setup fee, no contract, cancel whenever.",
+  primary: { label: "Start my 3 free months", href: "#get-started" },
+  secondary: { label: "See what it costs after", href: "#pricing" },
 };
 
 export function CtaBand() {
   return (
     <section className="py-16 md:py-24 lg:py-32">
       <Container>
-        {/* THE MOVE — the inverted band. */}
         <Reveal className="rounded-2xl bg-deep px-6 py-16 text-center md:px-12 md:py-24">
           <h2 className="mx-auto max-w-2xl font-display text-heading-1 text-on-deep">
             {CTA_BAND.heading}
@@ -1213,11 +769,9 @@ export function CtaBand() {
   );
 }
 
-/* ###########################################################################
-   SECTION 08 — SITE FOOTER
-   Chrome, so no expressive move.
-   ########################################################################### */
-
+/*
+Footer
+*/
 const FOOTER_COLUMNS = [
   {
     heading: "Product",
@@ -1231,7 +785,7 @@ const FOOTER_COLUMNS = [
     heading: "Company",
     links: [
       { label: "About", href: "#about" },
-      { label: "Contact", href: "#contact" },
+      { label: "Contact Us", href: "#contact" },
     ],
   },
   {
@@ -1251,13 +805,13 @@ export function SiteFooter() {
           <div>
             <Wordmark />
             <p className="mt-3 max-w-xs text-body-sm text-ink-muted">
-              Booking for people who work a chair.
+              Scheduling service for independent workers.
             </p>
           </div>
 
           {FOOTER_COLUMNS.map((column) => (
             <nav key={column.heading} aria-label={column.heading}>
-              <h2 className="text-eyebrow uppercase text-ink-muted">
+              <h2 className="text-eyebrow uppercase tracking-wide text-ink">
                 {column.heading}
               </h2>
               <ul className="mt-3 flex flex-col">
@@ -1265,7 +819,7 @@ export function SiteFooter() {
                   <li key={link.href}>
                     <a
                       href={link.href}
-                      className="inline-flex min-h-11 items-center text-body-sm text-ink-secondary transition-colors duration-120 ease-standard hover:text-ink"
+                      className="inline-flex min-h-11 items-center text-body-sm text-ink-muted transition-colors duration-120 ease-standard hover:text-ink md:min-h-8"
                     >
                       {link.label}
                     </a>
@@ -1284,17 +838,12 @@ export function SiteFooter() {
   );
 }
 
-/* ###########################################################################
-   PAGE COMPOSITION
-   The only place section order lives. Add, remove or reorder lines here.
-   ########################################################################### */
-
+/*
+Constructs the actual LandingPage object that pieces together all the functions above 
+*/
 export default function LandingPage() {
   return (
-    // overflow-x-clip contains the horizontal travel on the feature rows so it
-    // can never produce a sideways scrollbar. It must be `clip`, not `hidden`:
-    // `hidden` creates a scroll container and would break the sticky header.
-    <div className="overflow-x-clip bg-canvas-soft text-ink">
+    <div id="landing-root" className="overflow-x-clip bg-canvas-soft text-ink">
       <SiteHeader />
       <main>
         <Hero />
