@@ -12,10 +12,10 @@ dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
-    "pydantic-settings>=2.14.2",
-    "sqlalchemy>=2.0.51",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy>=2.0.52",
     "supabase>=2.31.0",
-    "uvicorn>=0.52.1",
+    "uvicorn>=0.52.3",
 ]
 
 [build-system]
@@ -27,7 +27,7 @@ dev = [
     "httpx2>=2.10.0",
     "psycopg2-binary>=2.9.12",
     "pytest>=9.1.1",
-    "ruff>=0.16.2",
+    "ruff>=0.16.3",
     "sqlacodegen>=4.0.4",
 ]
 
