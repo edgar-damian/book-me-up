@@ -13,8 +13,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from server.models.booking import DatesAvailable
-from server.supabase.booking import DatabaseUnavailable, get_dates
+from server.models.booking import DatesAvailable, TimesAvailable
+from server.supabase.booking import DatabaseUnavailable, get_dates, get_times
 
 router = APIRouter(prefix="/booking", tags=["booking"])
 
@@ -44,3 +44,57 @@ def dates_available(establishment_id: UUID, worker_id: UUID, service_id: UUID):
         )
 
     return dates
+
+
+@router.get(
+    "/establishment/{establishment_id}/worker/{worker_id}/service/{service_id}/times",
+    response_model=TimesAvailable,
+    responses={404: {"description": "Error fetching dates, please try again"}},
+)
+def times_available(establishment_id: UUID, worker_id: UUID, service_id: UUID):
+    """
+    Step 2 of the booking flow. The user already picked an establishment, service, worker,
+    and a valid date. Now they have to choose form the available timeslots in the chosen day. 
+    """
+    try:
+        times = get_times(establishment_id, worker_id, service_id)
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+    if times is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Times slots for this service not found",
+        )
+
+    return times
+
+
+@router.post(
+    "/establishment/{establishment_id}/worker/{worker_id}/service/{service_id}/times",
+    response_model=TimesAvailable,
+    responses={404: {"description": "Error fetching dates, please try again"}},
+)
+def times_available(establishment_id: UUID, worker_id: UUID, service_id: UUID):
+    """
+    Step 2 of the booking flow. The user already picked an establishment, service, worker,
+    and a valid date. Now they have to choose form the available timeslots in the chosen day. 
+    """
+    try:
+        times = get_times(establishment_id, worker_id, service_id)
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+    if times is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Times slots for this service not found",
+        )
+
+    return times

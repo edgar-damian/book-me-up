@@ -18,6 +18,8 @@ Timezone conventions (see docs/schema.md "Availability is computed, never stored
 """
 
 import logging
+from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -26,7 +28,7 @@ import httpx
 from postgrest import APIError
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 
-from server.models.booking import DatesAvailable
+from server.models.booking import DatesAvailable, TimesAvailable
 from server.supabase.sb_function import (
     DatabaseUnavailable, 
     _run,
@@ -299,3 +301,15 @@ def get_dates(
     return DatesAvailable(
         timezone=tz, window_start=window_start, window_end=window_end, dates=dates
     )
+
+
+def get_times(
+    establishment_id: UUID,
+    worker_id: UUID,
+    service_id: UUID,
+    *,
+    now_utc: datetime | None = None,
+) -> TimesAvailable | None:
+    """
+
+    """

@@ -17,159 +17,39 @@ from uuid import UUID
 from enum import StrEnum
 from datetime import date
 
+
 class DatesAvailable(BaseModel):
     """
-    This class is used to show the user a number of dates available.
-    In order for one date to be shown as available, it must have at 
-    least one bookable slot for a given service. 
-    
+    Dates on which at least one bookable slot exists for a given service.
     """
-
-    timezone: str # timezone of the establishment 
-    window_start: date # now -> worker_profile.min_lead_time_min (default of 60 min)
-    window_end: date # today -> worker_profile.max_advance_days (default of 60 days)
-    dates: list[date] # list of dates available
-
-# --------------- Everything downstream is from  public_models.py
-
-class Status(StrEnum):
-    PENDING = 'PENDING'
-    ACCEPTED = 'ACCEPTED'
-    REJECTED = 'REJECTED'
-    CANCELLED = 'CANCELLED'
-    COMPLETED = 'COMPLETED'
-    NO_SHOW = 'NO_SHOW'
-
-
-class CancelledBy(StrEnum):
-    CLIENT = 'CLIENT'
-    WORKER = 'WORKER'
-    SYSTEM = 'SYSTEM'
-
-
-class Service(BaseModel):
-    id: UUID = Field(..., description='Note:\nThis is a Primary Key.<pk/>')
-    worker_id: UUID = Field(
-        ...,
-        description="Note:\nThis is a Foreign Key to `worker_profile.id`.<fk table='worker_profile' column='id'/>",
+    timezone: str = Field(
+        description="Timezone of the establishment."
     )
-    title: str
-    description: str
-    image: str | None = None
-    price_cents: int
-    duration_min: int
-    buffer_after_min: int
-    is_active: bool
-    created_at: AwareDatetime
-    updated_at: AwareDatetime
-
-
-
-class WorkerScheduleDay(BaseModel):
-    id: UUID = Field(..., description='Note:\nThis is a Primary Key.<pk/>')
-    worker_establishment_id: UUID = Field(
-        ...,
-        description="Note:\nThis is a Foreign Key to `worker_establishment.id`.<fk table='worker_establishment' column='id'/>",
+    window_start: date = Field(
+        description="now -> worker_profile.min_lead_time_min (default of 60 min)"
     )
-    day_of_week: int
-    start_minute: int
-    end_minute: int
-    break_start_minute: int | None = None
-    break_end_minute: int | None = None
-    created_at: AwareDatetime
-    updated_at: AwareDatetime
-
-
-class WorkerProfile(BaseModel):
-    id: UUID = Field(..., description='Note:\nThis is a Primary Key.<pk/>')
-    user_id: UUID = Field(
-        ...,
-        description="Note:\nThis is a Foreign Key to `app_user.id`.<fk table='app_user' column='id'/>",
+    window_end: date = Field(
+        description="today -> worker_profile.max_advance_days (default of 60 days)"
     )
-    slug: str
-    first_name: str
-    last_name: str
-    bio: str
-    public_email: str | None = None
-    public_phone: str | None = None
-    image: str | None = None
-    is_active: bool
-    hold_expiry_hours: int
-    auto_accept: bool
-    min_lead_time_min: int
-    max_advance_days: int
-    cancellation_cutoff_min: int
-    created_at: AwareDatetime
-    updated_at: AwareDatetime
+    dates: list[date] = Field(
+        description="list of dates available"
+    )
 
 
-class Establishment(BaseModel):
-    id: UUID = Field(..., description='Note:\nThis is a Primary Key.<pk/>')
-    slug: str
-    name: str
-    address: str
-    city: str
-    state: str
-    zip: str
-    lat: float | None = None
-    lng: float | None = None
-    timezone: str
-    phone: str | None = None
-    email: str | None = None
-    hours: Any | None = None
-    description: str
-    images: list[str]
-    is_active: bool
-    created_at: AwareDatetime
-    updated_at: AwareDatetime
+class TimesAvailable(BaseModel):
+    """
+    """
+    class ValidSlot(BaseModel):
+        start_time: int
+        end_time: int
 
-
-class Appointment(BaseModel):
-    id: UUID = Field(..., description='Note:\nThis is a Primary Key.<pk/>')
-    worker_establishment_id: UUID
-    establishment_id: UUID = Field(
-        ...,
-        description="Note:\nThis is a Foreign Key to `establishment.id`.<fk table='establishment' column='id'/>",
+    timezone: str = Field(
+        description="Timezone of the establishment."
     )
-    worker_id: UUID = Field(
-        ...,
-        description="Note:\nThis is a Foreign Key to `worker_profile.id`.<fk table='worker_profile' column='id'/>",
+    day_chose: date = Field(
+        description="The day chosen by the user"
     )
-    service_id: UUID = Field(
-        ...,
-        description="Note:\nThis is a Foreign Key to `service.id`.<fk table='service' column='id'/>",
+    valid_slots: list[ValidSlot] = Field(
+        description="List of slots with a start and end time"
     )
-    client_id: UUID | None = Field(
-        None,
-        description="Note:\nThis is a Foreign Key to `client.id`.<fk table='client' column='id'/>",
-    )
-    starts_at: AwareDatetime
-    ends_at: AwareDatetime
-    block_ends_at: AwareDatetime
-    service_title: str
-    price_cents: int
-    duration_min: int
-    buffer_after_min: int
-    status: Status
-    cancelled_by: CancelledBy | None = None
-    hold_expires_at: AwareDatetime | None = None
-    client_name: str
-    client_phone: str
-    client_email: str | None = None
-    client_notes: str | None = None
-    cancelled_at: AwareDatetime | None = None
-    cancellation_reason: str | None = None
-    created_at: AwareDatetime
-    updated_at: AwareDatetime
-
-class WorkerTimeOff(BaseModel):
-    id: UUID = Field(..., description='Note:\nThis is a Primary Key.<pk/>')
-    worker_id: UUID = Field(
-        ...,
-        description="Note:\nThis is a Foreign Key to `worker_profile.id`.<fk table='worker_profile' column='id'/>",
-    )
-    starts: AwareDatetime
-    ends: AwareDatetime
-    reason: str | None = None
-    created_at: AwareDatetime
-    updated_at: AwareDatetime
+    
