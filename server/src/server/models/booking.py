@@ -19,9 +19,16 @@ from datetime import date
 
 class DatesAvailable(BaseModel):
     """
-
+    This class is used to show the user a number of dates available.
+    In order for one date to be shown as available, it must have at 
+    least one bookable slot for a given service. 
+    
     """
-    dates: list[date]
+
+    timezone: str # timezone of the establishment 
+    window_start: date # now -> worker_profile.min_lead_time_min (default of 60 min)
+    window_end: date # today -> worker_profile.max_advance_days (default of 60 days)
+    dates: list[date] # list of dates available
 
 # --------------- Everything downstream is from  public_models.py
 

@@ -21,7 +21,7 @@ from server.supabase.sb_function import (
 router = APIRouter()
 
 @router.get(
-    "/worker/{worker_id}/service/{service_id}",
+    "worker/{worker_id}/service/{service_id}/dates-available",
     response_model=DatesAvailable,
     responses={404: {"description": "Invalid worker_id or service_id"}},
 )
