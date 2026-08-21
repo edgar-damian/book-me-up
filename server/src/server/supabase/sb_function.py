@@ -34,6 +34,15 @@ class DatabaseUnavailable(RuntimeError):
     """Supabase refused or failed the query. Never surfaced to the client verbatim."""
 
 
+def _run(query, what: str):
+    """Execute a PostgREST query under the house error idiom (failure -> 503)."""
+    try:
+        return query.execute()
+    except (APIError, httpx.HTTPError) as exc:
+        logger.exception("%s query failed", what)
+        raise DatabaseUnavailable(str(exc)) from exc
+
+
 def _cols(model: type[BaseModel], **embeds: str) -> str:
     """
     PostgREST select list for a public model. Scalar fields map straight to

@@ -1,39 +1,36 @@
 """
-Includes routes/APIs used in the booking flow. There are 
-3 steps to the flow as follows: 
-    1) User already picked a Service from a Worker. They need to get shown 
+Includes routes/APIs used in the booking flow. There are
+3 steps to the flow as follows:
+    1) User already picked a Service from a Worker. They need to get shown
         a calendar with days available.
     2) User picks a day, then they must get shown a list of slots that are
         available for this given service.
-    3) User picks a date with a time. This needs to get posted on the db 
+    3) User picks a date with a time. This needs to get posted on the db
         so Workers can see it and clients get that slot as unavailable.
 """
 
-from fastapi import APIRouter, HTTPException, Path, status
 from uuid import UUID
-from server.models.booking import DatesAvailable
-from server.supabase.sb_function import (
-    DatabaseUnavailable,
-    get_establishment_by_slug,
-    get_worker_by_slug,
-)
 
-router = APIRouter()
+from fastapi import APIRouter, HTTPException, status
+
+from server.models.booking import DatesAvailable
+from server.supabase.booking import DatabaseUnavailable, get_dates
+
+router = APIRouter(prefix="/booking", tags=["booking"])
+
 
 @router.get(
-    "worker/{worker_id}/service/{service_id}/dates-available",
+    "/establishment/{establishment_id}/worker/{worker_id}/service/{service_id}/dates",
     response_model=DatesAvailable,
-    responses={404: {"description": "Invalid worker_id or service_id"}},
+    responses={404: {"description": "No active chair here, or no such service for this worker"}},
 )
-def get_dates(
-    worker_id: UUID,
-    service_id: UUID
-):
+def dates_available(establishment_id: UUID, worker_id: UUID, service_id: UUID):
     """
-
+    Step 1 of the booking flow. The user picks an establishment, worker, and service.
+    We render a list of dates available to choose from.
     """
     try:
-        dates = get_dates(worker_id, service_id)
+        dates = get_dates(establishment_id, worker_id, service_id)
     except DatabaseUnavailable:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -41,6 +38,9 @@ def get_dates(
         )
 
     if dates is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worker or Service not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Establishment, worker, or service not found",
+        )
 
     return dates
