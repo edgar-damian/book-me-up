@@ -502,23 +502,25 @@ values
 --   * Gary and Mr. Maellard have NO client row at all -- they book as guests.
 -- -----------------------------------------------------------------------------
 
-insert into public.client (id, phone, email, display_name, user_id)
+-- Thomas and CJ are single-name on purpose: last_name defaults to '' rather
+-- than forcing an invented surname.
+insert into public.client (id, phone, email, first_name, last_name, user_id)
 values
   -- Krusty Fadez regulars
-  ('00000006-0000-4000-8000-000000000001', '+16925552001', 'plankton@bikinibottom.test',  'Sheldon Plankton',   '00000001-0000-4000-8000-000000000011'),
-  ('00000006-0000-4000-8000-000000000002', '+16925552001', 'karen@bikinibottom.test',     'Karen Plankton',     '00000001-0000-4000-8000-000000000011'),  -- same phone, same account
-  ('00000006-0000-4000-8000-000000000003', '+16925552003', 'pearl@bikinibottom.test',     'Pearl Krabs',        null),
-  ('00000006-0000-4000-8000-000000000004', '+16925552004', null,                          'Mrs. Puff',          null),
-  ('00000006-0000-4000-8000-000000000005', '+16925552005', 'larry@bikinibottom.test',     'Larry the Lobster',  null),
-  ('00000006-0000-4000-8000-000000000006', '+16925552006', null,                          'Bubble Bass',        null),
-  ('00000006-0000-4000-8000-000000000007', '+16925552007', 'squilliam@bikinibottom.test', 'Squilliam Fancyson', null),
+  ('00000006-0000-4000-8000-000000000001', '+16925552001', 'plankton@bikinibottom.test',  'Sheldon',   'Plankton',    '00000001-0000-4000-8000-000000000011'),
+  ('00000006-0000-4000-8000-000000000002', '+16925552001', 'karen@bikinibottom.test',     'Karen',     'Plankton',    '00000001-0000-4000-8000-000000000011'),  -- same phone, same account
+  ('00000006-0000-4000-8000-000000000003', '+16925552003', 'pearl@bikinibottom.test',     'Pearl',     'Krabs',       null),
+  ('00000006-0000-4000-8000-000000000004', '+16925552004', null,                          'Mrs.',      'Puff',        null),
+  ('00000006-0000-4000-8000-000000000005', '+16925552005', 'larry@bikinibottom.test',     'Larry',     'the Lobster', null),
+  ('00000006-0000-4000-8000-000000000006', '+16925552006', null,                          'Bubble',    'Bass',        null),
+  ('00000006-0000-4000-8000-000000000007', '+16925552007', 'squilliam@bikinibottom.test', 'Squilliam', 'Fancyson',    null),
   -- Regular Cutz regulars
-  ('00000006-0000-4000-8000-000000000008', '+18185552008', 'muscleman@twinpeaks.test',    'Muscle Man',         '00000001-0000-4000-8000-000000000012'),
-  ('00000006-0000-4000-8000-000000000009', '+18185552009', null,                          'Hi-Five Ghost',      null),
-  ('00000006-0000-4000-8000-000000000010', '+18185552010', 'margaret@twinpeaks.test',     'Margaret Smith',     null),
-  ('00000006-0000-4000-8000-000000000011', '+18185552011', 'eileen@twinpeaks.test',       'Eileen Roberts',     null),
-  ('00000006-0000-4000-8000-000000000012', '+18185552012', null,                          'Thomas',             null),
-  ('00000006-0000-4000-8000-000000000013', '+18185552013', 'cj@twinpeaks.test',           'CJ',                 null);
+  ('00000006-0000-4000-8000-000000000008', '+18185552008', 'muscleman@twinpeaks.test',    'Muscle',    'Man',         '00000001-0000-4000-8000-000000000012'),
+  ('00000006-0000-4000-8000-000000000009', '+18185552009', null,                          'Hi-Five',   'Ghost',       null),
+  ('00000006-0000-4000-8000-000000000010', '+18185552010', 'margaret@twinpeaks.test',     'Margaret',  'Smith',       null),
+  ('00000006-0000-4000-8000-000000000011', '+18185552011', 'eileen@twinpeaks.test',       'Eileen',    'Roberts',     null),
+  ('00000006-0000-4000-8000-000000000012', '+18185552012', null,                          'Thomas',    '',            null),
+  ('00000006-0000-4000-8000-000000000013', '+18185552013', 'cj@twinpeaks.test',           'CJ',        '',            null);
 
 
 -- -----------------------------------------------------------------------------

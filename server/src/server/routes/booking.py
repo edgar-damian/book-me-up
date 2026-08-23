@@ -9,12 +9,24 @@ Includes routes/APIs used in the booking flow. There are
         so Workers can see it and clients get that slot as unavailable.
 """
 
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from server.models.booking import DatesAvailable, TimesAvailable
-from server.supabase.booking import DatabaseUnavailable, get_dates, get_times
+from server.models.booking import (
+    AppointmentBooked,
+    BookAppointment,
+    DatesAvailable,
+    TimesAvailable,
+)
+from server.supabase.booking import (
+    DatabaseUnavailable,
+    SlotTaken,
+    get_dates,
+    get_times,
+    make_appointment,
+)
 
 router = APIRouter(prefix="/booking", tags=["booking"])
 
@@ -51,13 +63,13 @@ def dates_available(establishment_id: UUID, worker_id: UUID, service_id: UUID):
     response_model=TimesAvailable,
     responses={404: {"description": "Error fetching dates, please try again"}},
 )
-def times_available(establishment_id: UUID, worker_id: UUID, service_id: UUID):
+def times_available(establishment_id: UUID, worker_id: UUID, service_id: UUID, day: date):
     """
     Step 2 of the booking flow. The user already picked an establishment, service, worker,
-    and a valid date. Now they have to choose form the available timeslots in the chosen day. 
+    and a valid date. Now they have to choose form the available timeslots in the chosen day.
     """
     try:
-        times = get_times(establishment_id, worker_id, service_id)
+        times = get_times(establishment_id, worker_id, service_id, day)
     except DatabaseUnavailable:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -74,27 +86,36 @@ def times_available(establishment_id: UUID, worker_id: UUID, service_id: UUID):
 
 
 @router.post(
-    "/establishment/{establishment_id}/worker/{worker_id}/service/{service_id}/times",
-    response_model=TimesAvailable,
-    responses={404: {"description": "Error fetching dates, please try again"}},
+    "/appointments",
+    response_model=AppointmentBooked,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        404: {"description": "No active chair here, or no such service for this worker"},
+        409: {"description": "Slot was taken while the client was deciding"},
+    },
 )
-def times_available(establishment_id: UUID, worker_id: UUID, service_id: UUID):
+def save_appointment(apt: BookAppointment):
     """
-    Step 2 of the booking flow. The user already picked an establishment, service, worker,
-    and a valid date. Now they have to choose form the available timeslots in the chosen day. 
+    Step 3 of the booking flow. The client picked a slot and gave us their details.
+    We save the appointment and hand back what got booked.
     """
     try:
-        times = get_times(establishment_id, worker_id, service_id)
+        appointment = make_appointment(apt)
+    except SlotTaken:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That time was just booked, please pick another",
+        )
     except DatabaseUnavailable:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Service temporarily unavailable",
         )
 
-    if times is None:
+    if appointment is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Times slots for this service not found",
+            detail="Establishment, worker, or service not found",
         )
 
-    return times
+    return appointment

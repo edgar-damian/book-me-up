@@ -136,7 +136,8 @@ Client [icon: users, color: purple] {
   id String pk
   phone String  // E.164, the dedupe key
   email String?
-  displayName String
+  firstName String
+  lastName String
   userId String? fk  // set if they ever make an account
   createdAt DateTime
   updatedAt DateTime

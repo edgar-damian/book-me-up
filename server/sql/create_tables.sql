@@ -268,7 +268,9 @@ create table public.client (
   id           uuid        primary key default gen_random_uuid(),
   phone        text        not null,  -- E.164, lookup key (returns 1..N rows)
   email        text,
-  display_name text        not null,
+  -- Defaulted like app_user's: a single-name client ('CJ') needs no surname.
+  first_name   text        not null default '',
+  last_name    text        not null default '',
   user_id      uuid        references public.app_user(id) on delete set null,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
@@ -276,10 +278,10 @@ create table public.client (
   constraint client_phone_e164_ck check (phone ~ '^\+[1-9][0-9]{1,14}$')
 );
 
--- Two profiles under one account can't share a display name, otherwise the
+-- Two profiles under one account can't share a name, otherwise the
 -- booking-time "which kid?" picker is ambiguous.
-create unique index client_user_display_name_uidx
-  on public.client (user_id, lower(display_name))
+create unique index client_user_name_uidx
+  on public.client (user_id, lower(first_name), lower(last_name))
   where user_id is not null;
 
 
