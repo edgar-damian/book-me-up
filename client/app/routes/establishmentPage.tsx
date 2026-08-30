@@ -1,4 +1,4 @@
-import type { Route } from "./+types/establishment";
+import type { Route } from "./+types/establishmentPage";
 import { EstablishmentPage } from "../pages/EstablishmentPage";
 import type { Establishment } from "~/models/establishmentPage";
 
