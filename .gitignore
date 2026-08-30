@@ -9,3 +9,5 @@ __pycache__/
 
 # Personal permission grants — the skills alongside this ARE committed.
 .claude/settings.local.json
+
+client-old/
