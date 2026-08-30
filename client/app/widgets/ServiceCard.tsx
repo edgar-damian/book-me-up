@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { IconMenuList, ImageTile } from "~/widgets/kit";
 import { formatDuration, formatPrice } from "~/widgets/format";
 
@@ -24,7 +25,21 @@ export type Service = {
   is_active: boolean;
 };
 
-export function ServiceCard({ service }: { service: Service }) {
+/** Shared so the live link and the inert button look identical. */
+const BOOK_BUTTON =
+  "inline-flex min-h-11 items-center justify-center rounded-md border border-border-input " +
+  "bg-surface px-4 py-2 text-button text-ink transition-colors duration-120 ease-standard " +
+  "hover:bg-hover-wash active:bg-press-wash disabled:pointer-events-none disabled:opacity-50";
+
+export function ServiceCard({
+  service,
+  bookHref,
+}: {
+  service: Service;
+  /** The card holds `worker_id`, not the slug the URL needs. Omit to render
+      the button inert. */
+  bookHref?: string;
+}) {
   return (
     <article className="flex flex-col gap-4 rounded-lg border border-hairline bg-surface p-6">
       <div className="flex items-start gap-4">
@@ -57,17 +72,17 @@ export function ServiceCard({ service }: { service: Service }) {
         </p>
 
         {/* Utility chrome rather than a primary fill: there is one primary per
-            view, and a grid of ten filled buttons is ten things shouting.
-            Inert until the booking flow exists — the section header says so,
-            so this is not a control that silently does nothing. Wiring it up
-            later is a <button> → <Link> swap. */}
-        <button
-          type="button"
-          disabled
-          className="inline-flex min-h-11 items-center justify-center rounded-md border border-border-input bg-surface px-4 py-2 text-button text-ink transition-colors duration-120 ease-standard hover:bg-hover-wash active:bg-press-wash disabled:pointer-events-none disabled:opacity-50"
-        >
-          Book
-        </button>
+            view, and a grid of ten filled buttons is ten things shouting. */}
+        {bookHref ? (
+          <Link to={bookHref} className={BOOK_BUTTON}>
+            Book
+            <span className="sr-only"> {service.title}</span>
+          </Link>
+        ) : (
+          <button type="button" disabled className={BOOK_BUTTON}>
+            Book
+          </button>
+        )}
       </div>
     </article>
   );

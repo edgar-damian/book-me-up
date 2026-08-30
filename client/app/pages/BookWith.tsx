@@ -207,7 +207,13 @@ function ShopLink({ chair, className }: { chair: Chair; className: string }) {
 }
 
 
-function ServicesSection({ services }: { services: Service[] }) {
+function ServicesSection({
+  services,
+  barberSlug,
+}: {
+  services: Service[];
+  barberSlug: string;
+}) {
   return (
     <section className="pb-16 md:pb-24 lg:pb-32">
       <Container>
@@ -223,7 +229,11 @@ function ServicesSection({ services }: { services: Service[] }) {
               className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
             >
               {services.map((service) => (
-                <ServiceCard key={service.id} service={service} />
+                <ServiceCard
+                  key={service.id}
+                  service={service}
+                  bookHref={`/book/${barberSlug}/${service.id}`}
+                />
               ))}
             </Reveal>
           </>
@@ -305,7 +315,7 @@ export function BookWith({ barber }: { barber: Barber }) {
         <BarberHeader barber={barber} chairs={chairs} />
         <ContactSection barber={barber} />
         <ShopsSection chairs={chairs} />
-        <ServicesSection services={services} />
+        <ServicesSection services={services} barberSlug={barber.slug} />
         <ScheduleBand chairs={chairs} />
       </main>
     </div>
