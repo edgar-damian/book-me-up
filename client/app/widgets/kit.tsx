@@ -406,6 +406,13 @@ export const IconChevronRight = (p: GlyphProps) => (
   </Glyph>
 );
 
+export const IconArrowRight = (p: GlyphProps) => (
+  <Glyph {...p}>
+    <path d="M4 12h15" />
+    <path d="m13 6 6 6-6 6" />
+  </Glyph>
+);
+
 export const IconChevronDown = (p: GlyphProps) => (
   <Glyph {...p}>
     <path d="m5 9.5 7 7 7-7" />
