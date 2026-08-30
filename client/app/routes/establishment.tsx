@@ -1,5 +1,6 @@
 import type { Route } from "./+types/establishment";
-import { EstablishmentPage, type Establishment } from "../pages/EstablishmentPage";
+import { EstablishmentPage } from "../pages/EstablishmentPage";
+import type { Establishment } from "~/models/establishmentPage";
 
 
 export async function loader({ params }: Route.LoaderArgs) {
