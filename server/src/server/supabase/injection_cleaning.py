@@ -266,8 +266,7 @@ def _at_to_word(s: str) -> str:
     if "@" not in s:
         return s
     return "".join(
-        tok if _looks_like_email(tok) else tok.replace("@", " at ")
-        for tok in _WS_SPLIT.split(s)
+        tok if _looks_like_email(tok) else tok.replace("@", " at ") for tok in _WS_SPLIT.split(s)
     )
 
 

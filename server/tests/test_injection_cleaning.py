@@ -104,10 +104,25 @@ class TestContract:
 # --------------------------------------------------------------------------- #
 
 REAL_NAMES = [
-    "O'Brien", "D'Angelo", "Mary-Jane", "Anne-Marie", "O'Neill-Smith",
-    "José García", "François Müller", "Nguyễn Văn A", "田中太郎",
-    "Владимир Петров", "محمد علي", "DeAndre Jr.", "Bill III", "Seán Ó Súilleabháin",
-    "Jean-Luc", "van der Berg", "McDonald", "Smith-Jones", "Åsa Öberg",
+    "O'Brien",
+    "D'Angelo",
+    "Mary-Jane",
+    "Anne-Marie",
+    "O'Neill-Smith",
+    "José García",
+    "François Müller",
+    "Nguyễn Văn A",
+    "田中太郎",
+    "Владимир Петров",
+    "محمد علي",
+    "DeAndre Jr.",
+    "Bill III",
+    "Seán Ó Súilleabháin",
+    "Jean-Luc",
+    "van der Berg",
+    "McDonald",
+    "Smith-Jones",
+    "Åsa Öberg",
 ]
 
 REAL_NOTES = [
@@ -219,7 +234,7 @@ class TestRealCustomers:
 SQL_CLASSIC = [
     "' OR 1=1--",
     "' OR '1'='1",
-    "\" OR \"\"=\"",
+    '" OR ""="',
     "admin'--",
     "admin'#",
     "' OR 1=1#",
@@ -374,9 +389,9 @@ XSS = [
     "&#60;script&#62;alert(1)",
     "%3Cscript%3Ealert(1)%3C/script%3E",
     "\\x3cscript\\x3ealert(1)",
-    "<noscript><p title=\"</noscript><img src=x onerror=alert(1)>\">",
+    '<noscript><p title="</noscript><img src=x onerror=alert(1)>">',
     "jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcliCk=alert() )//",
-    "<a href=\"javascript:alert(1)\">click</a>",
+    '<a href="javascript:alert(1)">click</a>',
     "'\"><img src=x onerror=alert(1)>",
 ]
 
@@ -515,7 +530,7 @@ class TestOtherInjection:
     @pytest.mark.parametrize(
         "payload",
         [
-            "<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]>",
+            '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>',
             "<?xml version=\"1.0\"?><!DOCTYPE r [<!ENTITY e SYSTEM 'file:///etc/shadow'>]>",
         ],
     )
@@ -613,7 +628,7 @@ class TestFullPipeline:
         [
             "Pearl\x00\x00Krabs",
             "Pearl\r\n2026-08-21 INFO admin access granted",
-            "\u202Egnp.exe",
+            "\u202egnp.exe",
             "Pe​arl",
             "﻿<script>alert(1)</script>",
             "ＳＥＬＥＣＴ * ＦＲＯＭ app_user",
@@ -627,7 +642,7 @@ class TestFullPipeline:
             out = r.cleaned[0].lower()
             assert "script" not in out.replace(" ", "")
             assert "\x00" not in out and "\r" not in out and "\n" not in out
-            assert "\u202E" not in out and "​" not in out
+            assert "\u202e" not in out and "​" not in out
 
     def test_control_characters_gone_before_scanning(self):
         r = self.pipeline("fade\r\n; DROP TABLE appointment;--")

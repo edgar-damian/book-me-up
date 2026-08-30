@@ -33,20 +33,14 @@ from server.models.booking import (
     TimesAvailable,
 )
 from server.supabase.injection_cleaning import injection_cleaning
-from server.supabase.sb_function import (
-    DatabaseUnavailable,
-    _run,
-    _cols,
-    admin_db,
-    public_db
-)
+from server.supabase.sb_function import DatabaseUnavailable, _run, _cols, admin_db, public_db
 
 logger = logging.getLogger(__name__)
 
-_GRID_MIN = 15 # show time slots in 15 min intervals
+_GRID_MIN = 15  # show time slots in 15 min intervals
 
-# triggered when the slot went to someone else mid flow 
-_EXCLUSION_VIOLATION = "23P01" 
+# triggered when the slot went to someone else mid flow
+_EXCLUSION_VIOLATION = "23P01"
 
 # Caps on anything the caller sends us, applied after scrubbing.
 _NAME_CAP = 100
@@ -58,7 +52,7 @@ _E164 = re.compile(r"\+[1-9][0-9]{1,14}")
 # Order handed to injection_cleaning, and what its [index] reasons refer to.
 _SCANNED_FIELDS = ("first_name", "last_name", "phone", "email", "notes")
 
-_BusyInterval = tuple[datetime, datetime] # Aware instants, half-open [start, end).
+_BusyInterval = tuple[datetime, datetime]  # Aware instants, half-open [start, end).
 
 
 class SlotTaken(RuntimeError):
@@ -183,8 +177,8 @@ def _open_intervals(sched: _ScheduleDay) -> list[tuple[int, int]]:
     The day's open wall-clock windows [start, end) minus the optional break.
 
     Args:
-        - sched (_ScheduleDay): The max open ness a worker has in their day 
-    
+        - sched (_ScheduleDay): The max open ness a worker has in their day
+
     Returns:
         - A list of [Start_minute, end_minute)
     """
@@ -424,7 +418,7 @@ def get_dates(
     now_utc: datetime | None = None,
 ) -> DatesAvailable | None:
     """
-    Step 1, a clients chooses a service and a worker. This function returns 
+    Step 1, a clients chooses a service and a worker. This function returns
     a list of dates available for their given service.
 
     Args:
@@ -583,7 +577,7 @@ def _clean_email(value: object) -> str | None:
     if s.count("@") != 1:
         return None
     local, _, domain = s.partition("@")
-    return s if local and "." in domain else None    
+    return s if local and "." in domain else None
 
 
 def make_appointment(
@@ -623,7 +617,9 @@ def make_appointment(
     # Second pass: reject outright anything nobody types by hand, defang the
     # rest. Order matters -- this rewrites the strings, so the checks below run
     # on what actually gets stored, not on what arrived.
-    ok, reasons, cleaned = injection_cleaning([first_name, last_name, phone, email or "", notes or ""])
+    ok, reasons, cleaned = injection_cleaning(
+        [first_name, last_name, phone, email or "", notes or ""]
+    )
     if not ok:
         logger.warning(
             "rejected booking for worker=%s, hostile input in %s",
@@ -659,7 +655,6 @@ def make_appointment(
         _minute_to_instant(day + timedelta(days=1), 0, ctx.zone),
     )
 
-
     offered = set(_iter_day_slots(day, sched, ctx.zone, ctx.slot_min, ctx.lead_instant, busy))
     if starts_at not in offered:
         raise SlotTaken(f"{starts_at.isoformat()} is not a slot we offer")
@@ -691,7 +686,7 @@ def make_appointment(
         "hold_expires_at": hold_expires_at.isoformat() if hold_expires_at else None,
     }
 
-    # NOTE: uses anon key 
+    # NOTE: uses anon key
     resp = _run_write(admin_db.table("appointment").insert(row), "appointment insert")
     if not resp.data:
         raise DatabaseUnavailable("insert returned no row")
