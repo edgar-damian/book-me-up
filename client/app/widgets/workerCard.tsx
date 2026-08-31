@@ -24,12 +24,10 @@ const WorkerCard = React.forwardRef<HTMLDivElement, WorkerCardProps>(
         {...props}
       >
         <div
-          className="relative block w-full h-full rounded-2xl overflow-hidden shadow-lg
+          className="relative block w-full h-full rounded-2xl overflow-hidden
+                     shadow-[0_0_40px_-15px_hsl(var(--theme-color)/0.5)]
                      transition-all duration-500 ease-in-out
                      group-hover:scale-105 group-hover:shadow-[0_0_60px_-15px_hsl(var(--theme-color)/0.6)]"
-          style={{
-             boxShadow: `0 0 40px -15px hsl(var(--theme-color) / 0.5)`
-          }}
         >
 
           <div
