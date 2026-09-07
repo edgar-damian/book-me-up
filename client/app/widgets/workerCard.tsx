@@ -53,10 +53,11 @@ const WorkerCard = React.forwardRef<HTMLDivElement, WorkerCardProps>(
               to={`/view-services/${worker.slug}`}
               className="mt-8 flex items-center justify-between bg-[hsl(var(--theme-color)/0.2)] backdrop-blur-md border border-[hsl(var(--theme-color)/0.3)]
                          rounded-lg px-4 py-3
-                         transition-all duration-300
+                         transition-all duration-120
+                         active:scale-[0.98]
                          group-hover:bg-[hsl(var(--theme-color)/0.4)] group-hover:border-[hsl(var(--theme-color)/0.5)]"
             >
-              <span className="text-sm font-semibold tracking-wide">Book Now</span>
+              <span className="text-sm font-semibold tracking-wide">Explore More</span>
               <IconArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
             </Link>
 

@@ -4,7 +4,7 @@ import type { WorkerLandingPage } from "~/models/workerPage";
 
 
 export async function loader({ params }: Route.LoaderArgs) {
-  const res = await fetch(`${process.env.API_URL}/book-with/${params.slug}`);
+  const res = await fetch(`${process.env.API_URL}/workers/${params.slug}`);
   if (!res.ok) throw new Response("Not found", { status: res.status });
   const workerLandingPage: WorkerLandingPage = await res.json();
   return workerLandingPage;

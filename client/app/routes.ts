@@ -4,4 +4,5 @@ export default [
   index("routes/home.tsx"),
   route("shops/:slug", "routes/establishmentPage.tsx"),
   route("view-services/:slug", "routes/workerPage.tsx"),
+  route("book-with/:slug", "routes/bookingFlow.tsx"),
 ] satisfies RouteConfig;
