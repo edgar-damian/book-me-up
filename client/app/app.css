@@ -559,6 +559,45 @@ html:has(#landing-root) {
   animation: marquee-drift linear infinite;
 }
 
+/* ===========================================================================
+   Attention nudge — one section lifts and settles to say "you're needed here."
+
+   Used when the booking CTA cannot proceed because no shop is selected: the
+   page scrolls to the selector, then the selector itself moves. Being taken
+   somewhere is not the same as being told why.
+
+   Travel is --reveal-distance, the same 16px a scroll reveal moves, so this
+   introduces no new number. The easing is --ease-standard and there is
+   deliberately NO spring or overshoot — see the note in kit.tsx on why that
+   reads as amateur.
+
+   Unlike the marquee above, this needs no reduced-motion special case. It
+   starts and ends at translateY(0), so the global block flattening it to
+   0.01ms produces no visual change rather than stranding it mid-travel.
+
+   Retriggered imperatively (remove class, force reflow, re-add) rather than by
+   React state: pressing the same disabled CTA twice sets identical state, so
+   React never re-renders and a state-driven animation would not replay — which
+   is the exact case this exists for.
+   =========================================================================== */
+@keyframes attention-nudge {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(calc(-1 * var(--reveal-distance)));
+  }
+}
+
+.attention-nudge {
+  animation: attention-nudge var(--duration-deliberate) var(--ease-standard);
+  /* Hold until the smooth scroll has fully landed, so the lift reads as its own
+     beat rather than half-playing while the page is still travelling. Tuned
+     against the worst case: a click from the bottom of a long service grid. */
+  animation-delay: var(--duration-deliberate);
+}
+
 /* Alpha-only edge fade. A mask needs no colour, so it survives a theme flip
    that a gradient-to-background overlay would not. The fade is narrow on a
    phone on purpose — 4rem a side eats a third of a 375px screen. */
