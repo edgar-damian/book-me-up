@@ -7,13 +7,14 @@ import type { Services } from "~/models/workerPage";
 
 interface ServiceCardProps extends React.HTMLAttributes<HTMLDivElement> {
   service: Services,
-  slug: String
+  workerId: string,
+  establishmentId: string
 }
 
 const THEME_COLOR = "218 87% 35%";
 
 const ServiceCard = React.forwardRef<HTMLDivElement, ServiceCardProps>(
-  ({ className, service, style, ...props }, ref) => {
+  ({ className, service, workerId, establishmentId, style, ...props }, ref) => {
     return (
       <div
         ref={ref}
@@ -51,7 +52,7 @@ const ServiceCard = React.forwardRef<HTMLDivElement, ServiceCardProps>(
             <p className="text-sm text-ink-secondary mt-1">{service.description}</p>
 
             <Link
-              to={`/view-services/${ service.duration_min }`}
+              to={`/book-with/${establishmentId}/${workerId}/${service.id}`}
               className="mt-8 flex items-center justify-between bg-[hsl(var(--theme-color)/0.2)] backdrop-blur-md border border-[hsl(var(--theme-color)/0.3)]
                   rounded-lg px-4 py-3
                   transition-all duration-120

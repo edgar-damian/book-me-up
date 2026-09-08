@@ -26,7 +26,15 @@ function BarberHeader({ worker }: { worker: WorkerLandingPage }) {
 }
 
 
-function ServiceList({ services, slug }: { services: Services[], slug: String}) {
+function ServiceList({
+  services,
+  workerId,
+  establishmentId,
+}: {
+  services: Services[];
+  workerId: string;
+  establishmentId: string;
+}) {
   return (
     <section className="pt-18 pb-16 md:pt-24 md:pb-24 lg:pt-30 lg:pb-32">
       <Container>
@@ -39,7 +47,12 @@ function ServiceList({ services, slug }: { services: Services[], slug: String}) 
         ) : (
           <Reveal stagger className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {services.map((service) => (
-              <ServiceCard key={service.id} service={service} slug={slug} />
+              <ServiceCard
+                key={service.id}
+                service={service}
+                workerId={workerId}
+                establishmentId={establishmentId}
+              />
             ))}
           </Reveal>
         )}
@@ -59,7 +72,13 @@ export function WorkerPage({
       <WordmarkBar />
       <main>
         <BarberHeader worker={worker} />
-        <ServiceList services={worker.services} slug={worker.slug} />
+        {/* TODO: chairs is a list -- a barber can work several shops, and this
+            silently picks the first. Needs a location picker before it ships. */}
+        <ServiceList
+          services={worker.services}
+          workerId={worker.id}
+          establishmentId={worker.chairs[0]?.establishment.id ?? ""}
+        />
       </main>
     </div>
   );
