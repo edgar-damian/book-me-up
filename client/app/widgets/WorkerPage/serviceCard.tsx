@@ -8,13 +8,28 @@ import type { Services } from "~/models/workerPage";
 interface ServiceCardProps extends React.HTMLAttributes<HTMLDivElement> {
   service: Services,
   workerId: string,
-  establishmentId: string
+  establishmentId: string | null,
+  needsShop?: boolean,
+  onNeedShop?: () => void
 }
 
 const THEME_COLOR = "218 87% 35%";
 
+const CTA_CLASS = `mt-8 flex items-center justify-between bg-[hsl(var(--theme-color)/0.2)] backdrop-blur-md border border-[hsl(var(--theme-color)/0.3)]
+                  rounded-lg px-4 py-3
+                  transition-all duration-120
+                  active:scale-[0.98]
+                  group-hover:bg-[hsl(var(--theme-color)/0.4)] group-hover:border-[hsl(var(--theme-color)/0.5)]`;
+
+const CTA_LABEL = (
+  <>
+    <span className="text-sm font-semibold tracking-wide">Book Now</span>
+    <IconArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
+  </>
+);
+
 const ServiceCard = React.forwardRef<HTMLDivElement, ServiceCardProps>(
-  ({ className, service, workerId, establishmentId, style, ...props }, ref) => {
+  ({ className, service, workerId, establishmentId, needsShop, onNeedShop, style, ...props }, ref) => {
     return (
       <div
         ref={ref}
@@ -51,17 +66,22 @@ const ServiceCard = React.forwardRef<HTMLDivElement, ServiceCardProps>(
             </h3>
             <p className="text-sm text-ink-secondary mt-1">{service.description}</p>
 
-            <Link
-              to={`/book-with/${establishmentId}/${workerId}/${service.id}`}
-              className="mt-8 flex items-center justify-between bg-[hsl(var(--theme-color)/0.2)] backdrop-blur-md border border-[hsl(var(--theme-color)/0.3)]
-                  rounded-lg px-4 py-3
-                  transition-all duration-120
-                  active:scale-[0.98]
-                  group-hover:bg-[hsl(var(--theme-color)/0.4)] group-hover:border-[hsl(var(--theme-color)/0.5)]"
-            >
-              <span className="text-sm font-semibold tracking-wide">Book Now</span>
-              <IconArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
-            </Link>
+            {establishmentId ? (
+              <Link
+                to={`/book-with/${establishmentId}/${workerId}/${service.id}`}
+                className={CTA_CLASS}
+              >
+                {CTA_LABEL}
+              </Link>
+            ) : (
+              <button type="button" onClick={onNeedShop} className={CTA_CLASS}>
+                {CTA_LABEL}
+              </button>
+            )}
+
+            {needsShop && (
+              <p className="mt-2 text-sm font-semibold tracking-wide">Pick a shop first</p>
+            )}
 
           </div>
         </div>
