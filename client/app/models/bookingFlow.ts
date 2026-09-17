@@ -6,6 +6,10 @@ export type DatesAvailable = {
   window_start: string;
   window_end: string;
   dates: string[];
+  service_title: string;
+  worker_name: string;
+  worker_slug: string;
+  establishment_name: string;
 };
 
 /**

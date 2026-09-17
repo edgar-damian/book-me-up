@@ -11,11 +11,11 @@ Includes classes used in the booking flow. There are
 
 from __future__ import annotations
 
-from typing import Any
-from pydantic import AwareDatetime, BaseModel, Field, RootModel, ConfigDict
-from uuid import UUID
-from enum import StrEnum
 from datetime import date
+from enum import StrEnum
+from uuid import UUID
+
+from pydantic import AwareDatetime, BaseModel, Field
 
 
 class DatesAvailable(BaseModel):
@@ -31,6 +31,10 @@ class DatesAvailable(BaseModel):
         description="today -> worker_profile.max_advance_days (default of 60 days)"
     )
     dates: list[date] = Field(description="list of dates available")
+    service_title: str
+    worker_name: str
+    worker_slug: str = Field(description="For the link back to the worker's page")
+    establishment_name: str
 
 
 class TimesAvailable(BaseModel):
