@@ -143,6 +143,11 @@
   /* Vertical travel for a scroll reveal. Small on purpose. */
   --reveal-distance: 16px;
 
+  /* How long a spinner stays invisible before it shows. Most transitions
+     finish sooner, and a spinner that flashes on every tap makes the product
+     feel slower than one that stays quiet. See references/components.md. */
+  --spinner-delay: 150ms;
+
   /* Seconds of drift per photo in the establishment marquee. The component
      multiplies this by the tile count, so the strip travels at one constant
      speed no matter how many photos a shop uploaded — tune the feel here and
@@ -596,6 +601,52 @@ html:has(#landing-root) {
      beat rather than half-playing while the page is still travelling. Tuned
      against the worst case: a click from the bottom of a long service grid. */
   animation-delay: var(--duration-deliberate);
+}
+
+/* ===========================================================================
+   Spinner — a hairline track with a primary arc, held back --spinner-delay.
+
+   Two animations on one element: the first flips opacity after the delay, the
+   second turns it. Under the reduced-motion block both collapse to a single
+   0.01ms iteration, and because `forwards` keeps the final opacity the result
+   is a static, visible ring rather than nothing. Honest either way.
+   =========================================================================== */
+@keyframes spinner-show {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes spinner-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  opacity: 0;
+  animation:
+    spinner-show 1ms var(--spinner-delay) forwards,
+    spinner-turn 700ms linear infinite;
+}
+
+/* ===========================================================================
+   Step change — the booking flow's body fades in and rises as one step gives
+   way to the next. Same 16px and the same entrance easing as a scroll reveal,
+   at the base duration since it answers a tap rather than a scroll.
+
+   Starts from the hidden state and ends at the natural one, so the reduced-
+   motion block flattening it to 0.01ms simply shows the content.
+   =========================================================================== */
+@keyframes step-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--reveal-distance));
+  }
+}
+
+.step-enter {
+  animation: step-enter var(--duration-base) var(--ease-entrance);
 }
 
 /* Alpha-only edge fade. A mask needs no colour, so it survives a theme flip
