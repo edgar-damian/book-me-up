@@ -1,5 +1,7 @@
-import type { Route } from "./+types/establishment";
-import { EstablishmentPage, type Establishment } from "../pages/EstablishmentPage";
+import type { Route } from "./+types/establishmentPage";
+import { EstablishmentPage } from "../pages/EstablishmentPage";
+import type { Establishment } from "~/models/establishmentPage";
+
 
 export async function loader({ params }: Route.LoaderArgs) {
   const res = await fetch(`${process.env.API_URL}/establishments/${params.slug}`);
@@ -8,13 +10,15 @@ export async function loader({ params }: Route.LoaderArgs) {
   return establishment;
 }
 
+
 export function meta({ loaderData }: Route.MetaArgs) {
-  if (!loaderData) return [{ title: "Shop not found · book-me-up" }];
+  if (!loaderData) return [{ title: "Shop not found" }];
   return [
-    { title: `${loaderData.name} · book-me-up` },
+    { title: `${loaderData.name}` },
     { name: "description", content: loaderData.description },
   ];
 }
+
 
 export default function Establishment({ loaderData }: Route.ComponentProps) {
   return <EstablishmentPage establishment={loaderData} />;

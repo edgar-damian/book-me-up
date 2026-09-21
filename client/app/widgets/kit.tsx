@@ -265,6 +265,27 @@ export function Cta({
   );
 }
 
+/* --- spinner -------------------------------------------------------------
+   A hairline track with a primary arc. Held invisible for --spinner-delay by
+   the .spinner rule in app.css, so a fast transition never flashes one.
+   size-4 inline in a button, size-8 for a whole view.                       */
+
+export function Spinner({
+  className = "size-4",
+  label = "Loading",
+}: {
+  className?: string;
+  label?: string;
+}) {
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      className={`spinner inline-block rounded-pill border-2 border-hairline border-t-primary ${className}`}
+    />
+  );
+}
+
 /* --- icons ---------------------------------------------------------------
    Rounded, stroke-based, currentColor. The vertical set is deliberately half
    barbering and half everything else — nails, tattoo, lashes, locs, piercing
@@ -403,6 +424,13 @@ export const IconCheck = (p: GlyphProps) => (
 export const IconChevronRight = (p: GlyphProps) => (
   <Glyph {...p}>
     <path d="m9.5 5 7 7-7 7" />
+  </Glyph>
+);
+
+export const IconArrowRight = (p: GlyphProps) => (
+  <Glyph {...p}>
+    <path d="M4 12h15" />
+    <path d="m13 6 6 6-6 6" />
   </Glyph>
 );
 

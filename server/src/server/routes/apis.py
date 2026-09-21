@@ -17,7 +17,7 @@ def health():
 
 
 @router.get(
-    "/book-with/{barber_slug}",
+    "/workers/{barber_slug}",
     response_model=WorkerLandingPage,
     responses={404: {"description": "No active barber with that slug"}},
 )

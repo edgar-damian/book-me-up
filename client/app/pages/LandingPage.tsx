@@ -8,7 +8,6 @@ import {
   IconCalendar,
   IconCalendarOff,
   IconCheck,
-  IconClock,
   IconLash,
   IconLink,
   IconMenuList,
@@ -17,11 +16,10 @@ import {
   IconPolish,
   IconScissors,
   IconShieldCheck,
-  IconStorefront,
   IconTattoo,
   IconTimer,
   IconWaves,
-} from "~/widgets/kit";
+} from "../widgets/kit";
 
 /*
 Landing page header with a drop down menu (on mobile) or 
