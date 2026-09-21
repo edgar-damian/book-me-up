@@ -24,7 +24,6 @@ import httpx
 from postgrest import APIError
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 
-from server.supabase.injection_cleaning import injection_cleaning
 from server.models.booking import (
     AppointmentBooked,
     BookAppointment,
@@ -33,7 +32,7 @@ from server.models.booking import (
     TimesAvailable,
 )
 from server.supabase.injection_cleaning import injection_cleaning
-from server.supabase.sb_function import DatabaseUnavailable, _run, _cols, admin_db, public_db
+from server.supabase.sb_function import DatabaseUnavailable, _cols, _run, admin_db, public_db
 
 logger = logging.getLogger(__name__)
 
@@ -106,14 +105,20 @@ class _ChairContext(BaseModel):
         model_config = ConfigDict(extra="ignore")
 
         timezone: str
+        name: str
 
     class Policy(BaseModel):
+        """The worker_profile row: booking policy plus the public name."""
+
         model_config = ConfigDict(extra="ignore")
 
         min_lead_time_min: int
         max_advance_days: int
         auto_accept: bool
         hold_expiry_hours: int
+        first_name: str
+        last_name: str
+        slug: str
 
     id: UUID
     establishment: Establishment
@@ -263,6 +268,9 @@ class _Context:
     zone: ZoneInfo
     by_dow: dict[int, _ScheduleDay]
     service_title: str
+    worker_name: str
+    worker_slug: str
+    establishment_name: str
     price_cents: int
     duration_min: int  # client-facing length
     buffer_after_min: int
@@ -350,6 +358,9 @@ def _load_context(
         zone=zone,
         by_dow={s.day_of_week: s for s in chair.schedule_days},
         service_title=svc.title,
+        worker_name=f"{policy.first_name} {policy.last_name}".strip(),
+        worker_slug=policy.slug,
+        establishment_name=chair.establishment.name,
         price_cents=svc.price_cents,
         duration_min=svc.duration_min,
         buffer_after_min=svc.buffer_after_min,
@@ -445,9 +456,7 @@ def get_dates(
         return None
 
     if ctx.window_start > ctx.window_end:  # lead time reaches past the advance limit
-        return DatesAvailable(
-            timezone=ctx.tz, window_start=ctx.window_start, window_end=ctx.window_end, dates=[]
-        )
+        return _dates_available(ctx, [])
 
     # Busy fetch bounds: [local midnight of window_start, midnight after window_end).
     busy = _fetch_busy(
@@ -466,8 +475,20 @@ def get_dates(
             dates.append(day)
         day += timedelta(days=1)
 
+    return _dates_available(ctx, dates)
+
+
+def _dates_available(ctx: _Context, dates: list[date]) -> DatesAvailable:
+    """Step 1's response: the open days plus what is being booked, for the page header."""
     return DatesAvailable(
-        timezone=ctx.tz, window_start=ctx.window_start, window_end=ctx.window_end, dates=dates
+        timezone=ctx.tz,
+        window_start=ctx.window_start,
+        window_end=ctx.window_end,
+        dates=dates,
+        service_title=ctx.service_title,
+        worker_name=ctx.worker_name,
+        worker_slug=ctx.worker_slug,
+        establishment_name=ctx.establishment_name,
     )
 
 
