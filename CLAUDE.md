@@ -13,9 +13,9 @@ service workers.
 | `server/` | FastAPI · Pydantic v2 · supabase-py · uv · Python 3.12.12 |
 | Database | Supabase Postgres, reached over PostgREST — **not** through an ORM |
 
-`sqlalchemy`, `asyncpg`, `sqlacodegen`, and `psycopg2-binary` appear in
-`server/pyproject.toml` but are not imported anywhere in `src/`, `scripts/`, or `tests/`.
-Don't assume a SQLAlchemy layer exists.
+There is no SQLAlchemy layer and no direct Postgres driver: every query goes through
+supabase-py. `SUPABASE_DB_URL` is declared in config but nothing opens a connection with
+it. Don't add an ORM or driver dependency without a reason to bypass PostgREST.
 
 `server/sql/` holds `create_tables.sql` (the executable form of the model — tables, the
 double-booking exclusion constraint, RLS policies, the busy views, the hold sweeper) and
@@ -122,13 +122,14 @@ its fields changes a query.
 
 ### Errors
 
-The query layer distinguishes three failure modes and routes must preserve the
+The query layer distinguishes four failure modes and routes must preserve the
 distinction. Query functions raise or return; **routes are the only place `HTTPException`
 is constructed**:
 
 - `DatabaseUnavailable` → **503**, message deliberately vague. Detail goes to logs only.
 - `None` (no such row) → **404**.
 - `SlotTaken` → **409**. Booking flow only.
+- `BlankFirstName` → **422**. Booking flow only; checked before any query runs.
 
 `_run(query, what)` in `sb_function.py` is the house idiom for reads: it catches `APIError`
 and `httpx.HTTPError`, logs, and re-raises as `DatabaseUnavailable`. `_run_write()` in
@@ -177,23 +178,43 @@ a week off). Their SELECT lists are therefore a privacy boundary of the same kin
 Slots are laid on a **15-minute grid** (`_GRID_MIN`) and occupy `duration_min +
 buffer_after_min`, while the client-facing `end_time` is `start + duration_min` only.
 
-### Untrusted strings get two passes
+### Free text is tidied, not sanitized
 
-Anything the caller types (names, phone, email, notes) is scrubbed twice before it is
-stored, and order matters — the second pass rewrites the string, so later checks run on
-what actually gets written:
+Names, email, and notes are stored as typed. **SQL injection is handled by
+parameterization**: every query goes through the PostgREST builder, and the insert body
+travels as JSON that PostgREST binds as one parameter, so `'); DROP TABLE` is just a
+string. **XSS is handled at render time**: React escapes text children, so render these
+fields as `{appt.client_notes}`. Never pass them through `dangerouslySetInnerHTML`
+(semgrep's `p/react` flags it in CI) or into an `href`/`src`, and don't auto-linkify notes
+without an `https:` allow-list. An HTML email template needs autoescape on, and a CSV
+export must neutralize cells that start with `=`, `+`, `-`, or `@`.
 
-1. `_clean()` / `_clean_email()` in `supabase/booking.py` — NFKC fold, drop every Unicode
-   `C*` category char, collapse whitespace, hard cap length.
-2. `injection_cleaning()` in `supabase/injection_cleaning.py` — scanners **reject** the
-   payloads nobody types by hand (union select, script tags, `${`, traversal, percent-hex);
-   everything milder is **softened** in place (quotes and angle brackets blanked, parens to
-   brackets, `drop table` → `drop_table`, `@` → ` at ` outside an address).
+Don't reintroduce a keyword or punctuation filter. The one this replaced stored O'Brien as
+`O Brien` and rejected real notes like `my sons' and my cuts` and `"skin fade" or "low
+taper"`, failing the booking.
 
-It returns positional `[index]` reasons against `_SCANNED_FIELDS`; `_named_reasons()` maps
-them back to field names for the log. **Reasons name the pattern and never echo the
-payload** — keep it that way when adding a scanner. A rejection is a 404, not a 400: the
-caller learns nothing about why.
+`_clean()` in `supabase/booking.py` is the single pass, and it is storage hygiene:
+
+- NFC, not NFKC, so `½` and full-width text are kept as typed.
+- `_INVISIBLE` characters become spaces: control codes (Postgres rejects NUL in text),
+  lone surrogates (httpx can't encode them, so the insert would raise), and the bidi
+  override/isolate controls (they can make a name display reversed). ZWJ and ZWNJ are
+  deliberately not in it — emoji sequences and Persian, Hindi, and Sinhala spelling need
+  them.
+- Whitespace collapses to single spaces and the ends are trimmed, so every note is one
+  line.
+- A string with nothing visible left becomes `""`. That is how a blank first name is
+  caught (`BlankFirstName`, 422).
+- Hard caps: names 100, email 254, notes 1000 (the textarea's `maxLength`).
+
+`_clean_email()` adds NFKC (an address is an identifier) and a lowercase shape check; a
+junk address is dropped rather than failing the booking. The phone isn't cleaned at all:
+`BookAppointment.Client.phone`'s pattern 422s anything but E.164, and
+`appointment_phone_e164_ck` backs it up.
+
+User input reaches PostgREST only as a filter value (`.eq(col, value)`), never formatted
+into the strings passed to `.or_()`, `.filter()`, or `.select()`. That would be filter
+injection, which parameterization does not cover.
 
 ### Config
 

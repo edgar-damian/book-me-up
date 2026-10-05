@@ -21,6 +21,7 @@ from server.models.booking import (
     TimesAvailable,
 )
 from server.supabase.booking import (
+    BlankFirstName,
     DatabaseUnavailable,
     SlotTaken,
     get_dates,
@@ -101,6 +102,11 @@ def save_appointment(apt: BookAppointment):
     """
     try:
         appointment = make_appointment(apt)
+    except BlankFirstName:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="First name is required",
+        )
     except SlotTaken:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

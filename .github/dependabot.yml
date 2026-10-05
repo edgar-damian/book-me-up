@@ -14,7 +14,7 @@ updates:
       server-minor-and-patch:
         update-types: ["minor", "patch"]
       server-dev-tooling:
-        patterns: ["pytest*", "ruff", "sqlacodegen", "psycopg2-binary"]
+        patterns: ["pytest*", "ruff"]
         update-types: ["minor", "patch", "major"]
 
   # ---------------------------------------------------------------- client
