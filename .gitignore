@@ -1,16 +1,17 @@
+# AI agents
 CLAUDE.md
 AGENTS.md
 
+# Personal Claude Code permissions
+.claude/settings.local.json
+
+# Secrets
 .env
 
+# Python
 .venv
-
 __pycache__/
 *.pyc
 
+# macOS
 .DS_Store
-
-# Personal permission grants — the skills alongside this ARE committed.
-.claude/settings.local.json
-
-client-old/
