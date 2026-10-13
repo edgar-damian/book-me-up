@@ -8,14 +8,14 @@ authors = [
 ]
 requires-python = ">=3.12.12"
 dependencies = [
-    "asyncpg>=0.31.0",
-    "fastapi>=0.141.1",
+    "asyncpg>=0.32.0",
+    "fastapi>=0.143.0",
     "httpx>=0.28.1",
-    "pydantic>=2.13.4",
-    "pydantic-settings>=2.14.2",
-    "sqlalchemy>=2.0.51",
-    "supabase>=2.31.0",
-    "uvicorn>=0.52.1",
+    "pydantic>=2.14.0",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy>=2.1.4",
+    "supabase>=2.32.0",
+    "uvicorn>=0.54.0",
 ]
 
 [build-system]
@@ -24,10 +24,10 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.10.0",
-    "psycopg2-binary>=2.9.12",
+    "httpx2>=2.13.1",
+    "psycopg2-binary>=2.9.13",
     "pytest>=9.1.1",
-    "ruff>=0.16.2",
+    "ruff>=0.17.0",
     "sqlacodegen>=4.0.4",
 ]
 
