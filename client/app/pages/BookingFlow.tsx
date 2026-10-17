@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigation, useSearchParams } from "react-router";
-import { Container, Spinner, WordmarkBar } from "~/widgets/kit";
+import { Container, Spinner } from "~/widgets/kit";
+import { SiteHeader } from "~/widgets/siteHeader";
 import { Progress, type Step } from "~/widgets/BookingFlow/progress";
 import { Calendar } from "~/widgets/BookingFlow/calendar";
 import { TimeSlots } from "~/widgets/BookingFlow/timeSlot";
@@ -74,7 +75,7 @@ export function BookingFlow({
 
   return (
     <div className="overflow-x-clip bg-canvas-soft text-ink">
-      <WordmarkBar />
+      <SiteHeader company={false} />
       <main>
         <Header dates={dates} />
         <Container className="pb-16 md:pb-24">

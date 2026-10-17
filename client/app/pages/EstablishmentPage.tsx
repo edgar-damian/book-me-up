@@ -1,5 +1,7 @@
-import { Container, IconMapPin, Reveal, WordmarkBar } from "~/widgets/kit";
+import { Container, Reveal } from "~/widgets/kit";
+import { SiteHeader } from "~/widgets/siteHeader";
 import { WorkerCard } from "~/widgets/workerCard";
+import { ShopFooter } from "~/widgets/shopFooter";
 import type { Establishment, EstablishmentWorker } from "~/models/establishmentPage";
 
 
@@ -45,77 +47,6 @@ function WorkerList({ workers }: { workers: EstablishmentWorker[] }) {
 }
 
 
-function DirectionsLink({ location }: { location: Establishment }) {
-
-  function getDirectionsUrl(loc: Establishment): string {
-    const destination =
-      loc.lat !== null && loc.lng !== null
-        ? `${loc.lat},${loc.lng}`
-        : [loc.address, loc.city, loc.state, loc.zip].filter(Boolean).join(", ");
-
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
-  }
-
-  return (
-    <a
-      href={getDirectionsUrl(location)}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      Get directions
-    </a>
-  );
-}
-
-
-function AddressFooter({ establishment }: { establishment: Establishment }) {
-  return (
-    <footer className="border-t border-hairline bg-surface">
-      <Container className="py-16">
-        <div className="flex items-start gap-4">
-          <span className="grid size-11 shrink-0 place-items-center rounded-lg border border-hairline text-ink-secondary">
-            <IconMapPin className="size-5" />
-          </span>
-
-          <div>
-            <h2 className="text-heading-3 text-ink">{establishment.name}</h2>
-            <address className="mt-2 not-italic text-body-md text-ink-secondary">
-              {establishment.address}
-              <br />
-              {establishment.city}, {establishment.state} {establishment.zip}
-            </address>
-
-            {(establishment.phone || establishment.email) && (
-              <div className="mt-2 flex flex-col items-start">
-                <a className="inline-flex min-h-11 items-center text-body-sm text-primary-text">
-                  <DirectionsLink location={establishment} />
-                </a>
-                {establishment.phone && (
-                  <a
-                    href={`tel:${establishment.phone}`}
-                    className="inline-flex min-h-11 items-center text-body-sm text-primary-text"
-                  >
-                    {establishment.phone}
-                  </a>
-                )}
-                {establishment.email && (
-                  <a
-                    href={`mailto:${establishment.email}`}
-                    className="inline-flex min-h-11 items-center text-body-sm text-primary-text"
-                  >
-                    {establishment.email}
-                  </a>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </Container>
-    </footer>
-  );
-}
-
-
 export function EstablishmentPage({
   establishment,
 }: {
@@ -123,12 +54,12 @@ export function EstablishmentPage({
 }) {
   return (
     <div className="overflow-x-clip bg-canvas-soft text-ink">
-      <WordmarkBar />
+      <SiteHeader company={false} />
       <main>
         <ShopHeader establishment={establishment} />
         <WorkerList workers={establishment.workers} />
       </main>
-      <AddressFooter establishment={establishment} />
+      <ShopFooter establishment={establishment} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Container, Reveal, WordmarkBar } from "~/widgets/kit";
+import { Container, Reveal } from "~/widgets/kit";
+import { SiteHeader } from "~/widgets/siteHeader";
 import { ServiceCard } from "~/widgets/WorkerPage/serviceCard";
 import {EstablishmentSelector} from "~/widgets/WorkerPage/establishmentSelector"
 import type {
@@ -108,7 +109,7 @@ export function WorkerPage({
 
   return (
     <div className="overflow-x-clip bg-canvas-soft text-ink">
-      <WordmarkBar />
+      <SiteHeader company={false} />
       <main>
         <BarberHeader worker={worker} />
 

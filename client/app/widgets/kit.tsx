@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router";
 
 /* ===========================================================================
    book-me-up — SHARED KIT
@@ -540,28 +539,6 @@ export function ImageTile({
         fallback
       )}
     </span>
-  );
-}
-
-/** Minimal page chrome: the wordmark and a way home, nothing else.
- *
- *  For pages that belong to somebody else — a shop, a barber — where the
- *  landing page's nav would be wrong, since its anchors point at sections
- *  those pages do not have. */
-export function WordmarkBar() {
-  return (
-    <header className="border-b border-hairline bg-surface">
-      <Container>
-        <div className="flex min-h-14 items-center">
-          <Link
-            to="/"
-            className="inline-flex min-h-11 items-center rounded-md pe-2 transition-colors duration-120 ease-standard hover:bg-hover-wash"
-          >
-            <Wordmark />
-          </Link>
-        </div>
-      </Container>
-    </header>
   );
 }
 
