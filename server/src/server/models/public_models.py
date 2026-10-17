@@ -1,5 +1,5 @@
 """
-Response shapes for the public API.
+Request and response shapes for the public API.
 
 These are the enforcement point for what leaves the server. FastAPI filters
 every response through the declared `response_model`, so a column accidentally
@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def to_public[P: BaseModel](public_model: type[P], row: object) -> P:
@@ -126,6 +126,19 @@ class EstablishmentLandingPage(BaseModel):
     images: list[str]
     is_active: bool
     workers: list[Workers]
+
+
+class JoinWaitlist(BaseModel):
+    """
+    What the waitlist form posts. submitted_at and received_offer are set by
+    the database; extra fields in the body are ignored, so a client cannot
+    send them.
+    """
+
+    first_name: str
+    last_name: str
+    phone: str = Field(description="E.164", pattern=r"^\+[1-9][0-9]{1,14}$")
+    email: str
 
 
 class Status(StrEnum):

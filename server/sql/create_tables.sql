@@ -730,3 +730,41 @@ grant select on public.appointment_busy     to anon, authenticated;
 grant select on public.worker_time_off_busy to anon, authenticated;
 
 commit;
+
+-- ============================================================================
+-- WAITLIST
+--
+-- People who signed up on the landing page before launch. These are contact
+-- details for people who are not users yet, so the table is closed to anon
+-- and authenticated alike: RLS is on with no policies, and the server writes
+-- through admin_db -- the same arrangement as the appointment insert.
+--
+-- received_offer starts false and records whether the launch offer has gone
+-- out to this person.
+--
+-- Run after create_tables.sql. Safe to re-run.
+-- ============================================================================
+
+begin;
+
+create table if not exists public.waitlist_signup (
+  id              uuid        primary key default gen_random_uuid(),
+  first_name      text        not null,
+  last_name       text        not null,
+  phone           text        not null,  -- E.164
+  email           text        not null,  -- stored lowercased by the API
+  submitted_at    timestamptz not null default now(),
+  received_offer  boolean     not null default false,
+
+  constraint waitlist_signup_phone_e164_ck check (phone ~ '^\+[1-9][0-9]{1,14}$')
+);
+
+-- One row per address, whatever its case. The API stores emails lowercased;
+-- the index holds even if a row arrives some other way.
+create unique index if not exists waitlist_signup_email_uq
+  on public.waitlist_signup (lower(email));
+
+alter table public.waitlist_signup enable row level security;
+revoke all on public.waitlist_signup from anon, authenticated;
+
+commit;

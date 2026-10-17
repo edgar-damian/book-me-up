@@ -114,10 +114,10 @@ export function SiteHeader({ company }: { company: boolean }) {
                   Log in
                 </a>
                 <a
-                  href="#get-started"
+                  href="/waitlist"
                   className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 text-button text-on-primary transition-colors duration-120 ease-standard hover:bg-primary-hover active:bg-primary-active"
                 >
-                  Get started
+                  Join a waitlist
                 </a>
               </div>
 
@@ -190,7 +190,7 @@ export function SiteHeader({ company }: { company: boolean }) {
             </nav>
 
             <div className="flex flex-col gap-2">
-              <Cta href="#get-started">Get started</Cta>
+              <Cta href="/waitlist">Join a waitlist</Cta>
               <Cta href="#login" variant="secondary">
                 Log in
               </Cta>

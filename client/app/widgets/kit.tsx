@@ -12,7 +12,8 @@ import {
    ===========================================================================
 
    The primitives every page is built from: page container, scroll reveal,
-   buttons, icons, wordmark. Nothing in here knows about any particular page.
+   buttons, form fields, icons, wordmark. Nothing in here knows about any
+   particular page.
 
    Lifted out of pages/LandingPage.tsx when the establishment page became the
    second consumer. It is a move, not a rewrite — LandingPage.tsx renders exactly
@@ -261,6 +262,61 @@ export function Cta({
     <a href={href} className={`${CTA_BASE} ${CTA_VARIANTS[variant]} ${className}`}>
       {children}
     </a>
+  );
+}
+
+/* --- form fields ---------------------------------------------------------
+   Uncontrolled inputs with a label above and one line below for an error or
+   a hint. Bordered in border-input: an interactive edge has to clear 3:1,
+   which hairline does not.                                                 */
+
+export const FIELD = "w-full min-h-11 rounded-xs border bg-surface px-3 py-2 text-ink placeholder:text-ink-muted";
+
+/** What people type, as E.164. Ten digits with no country code are read as US. */
+export function toE164(raw: string) {
+  const digits = raw.replace(/\D/g, "");
+  const full = raw.trim().startsWith("+")
+    ? digits
+    : digits.length === 10
+      ? `1${digits}`
+      : digits.length === 11 && digits.startsWith("1")
+        ? digits
+        : "";
+  return /^[1-9]\d{1,14}$/.test(full) ? `+${full}` : null;
+}
+
+export function Input({
+  name,
+  label,
+  error,
+  help,
+  ...rest
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  name: string;
+  label: string;
+  error?: string;
+  help?: string;
+}) {
+  const note = error ? `${name}-error` : help ? `${name}-help` : undefined;
+  return (
+    <div>
+      <label htmlFor={name} className="mb-1 block text-ink-secondary">
+        {label}
+      </label>
+      <input
+        id={name}
+        name={name}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={note}
+        className={`${FIELD} ${error ? "border-danger-text" : "border-border-input"}`}
+        {...rest}
+      />
+      {error ? (
+        <p id={note} className="mt-1 text-caption text-danger-text">{error}</p>
+      ) : help ? (
+        <p id={note} className="mt-1 text-caption text-ink-muted">{help}</p>
+      ) : null}
+    </div>
   );
 }
 

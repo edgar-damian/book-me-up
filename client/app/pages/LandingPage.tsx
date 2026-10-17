@@ -29,7 +29,7 @@ const HERO = {
   eyebrow: "For barbers, stylists, and artists who rent their chair",
   headline: "Stop booking clients in your DMs.",
   body: "Share one link. Clients pick a time that's actually open, reminders go out on their own, and nobody double-books your chair.",
-  primaryCta: { label: "Create my booking link", href: "#get-started" },
+  primaryCta: { label: "Create my booking link", href: "/waitlist" },
   primatyCtaWaitlist: { label: "Join Wait List", href: "" }, // NOTE: this is only temporary while the application gets finished
   secondaryCta: { label: "See how it works", href: "#features" },
   footnote: "Set up in 5 minutes from your phone. Clients book in two taps — no app, no account.",
@@ -444,7 +444,7 @@ const PRICING_PLANS = [
       "Automatic reminders",
       "Client notes and history",
     ],
-    cta: { label: "Get started", href: "#get-started" },
+    cta: { label: "Join a waitlist", href: "/waitlist" },
     recommended: false,
   },
   {
@@ -458,7 +458,7 @@ const PRICING_PLANS = [
       "Optional shop page that lists all of you",
       "Owner view across the floor, if you want one",
     ],
-    cta: { label: "Get started", href: "#get-started" },
+    cta: { label: "Join a waitlist", href: "/waitlist" },
     recommended: true,
   },
   {
@@ -472,7 +472,7 @@ const PRICING_PLANS = [
       "Solo or shop, same yearly price",
       "One less thing to think about",
     ],
-    cta: { label: "Get started", href: "#get-started" },
+    cta: { label: "Join a waitlist", href: "/waitlist" },
     recommended: false,
   },
 ];
@@ -548,7 +548,7 @@ CTA band, currently shows a 3 month promotion
 const CTA_BAND = {
   heading: "Set it up tonight. Take bookings tomorrow.",
   body: "Your first 3 months are free while early pricing lasts. No setup fee, no contract, cancel whenever.",
-  primary: { label: "Start my 3 free months", href: "#get-started" },
+  primary: { label: "Start my 3 free months", href: "/waitlist" },
   secondary: { label: "See what it costs after", href: "#pricing" },
 };
 
