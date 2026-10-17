@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Form } from "react-router";
-import { Spinner } from "~/widgets/kit";
+import { FIELD, Input, Spinner, toE164 } from "~/widgets/kit";
 import type { ValidSlot } from "~/models/bookingFlow";
 import { BackButton, CARD, TIME, fmtInstant } from "./shared";
 
@@ -12,60 +12,10 @@ import { BackButton, CARD, TIME, fmtInstant } from "./shared";
 type Field = "first_name" | "last_name" | "phone";
 type Errors = Partial<Record<Field, string>>;
 
-const FIELD = "w-full min-h-11 rounded-xs border bg-surface px-3 py-2 text-ink placeholder:text-ink-muted";
-
-/** What people type, as E.164. Ten digits with no country code are read as US. */
-function toE164(raw: string) {
-  const digits = raw.replace(/\D/g, "");
-  const full = raw.trim().startsWith("+")
-    ? digits
-    : digits.length === 10
-      ? `1${digits}`
-      : digits.length === 11 && digits.startsWith("1")
-        ? digits
-        : "";
-  return /^[1-9]\d{1,14}$/.test(full) ? `+${full}` : null;
-}
-
 function check(name: Field, value: string) {
   if (name === "phone") return toE164(value) ? undefined : "Enter a phone number with area code";
   if (value.trim()) return undefined;
   return name === "first_name" ? "Enter your first name" : "Enter your last name";
-}
-
-function Input({
-  name,
-  label,
-  error,
-  help,
-  ...rest
-}: React.InputHTMLAttributes<HTMLInputElement> & {
-  name: string;
-  label: string;
-  error?: string;
-  help?: string;
-}) {
-  const note = error ? `${name}-error` : help ? `${name}-help` : undefined;
-  return (
-    <div>
-      <label htmlFor={name} className="mb-1 block text-ink-secondary">
-        {label}
-      </label>
-      <input
-        id={name}
-        name={name}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={note}
-        className={`${FIELD} ${error ? "border-danger-text" : "border-border-input"}`}
-        {...rest}
-      />
-      {error ? (
-        <p id={note} className="mt-1 text-caption text-danger-text">{error}</p>
-      ) : help ? (
-        <p id={note} className="mt-1 text-caption text-ink-muted">{help}</p>
-      ) : null}
-    </div>
-  );
 }
 
 export function RequestForm({

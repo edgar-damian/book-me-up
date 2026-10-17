@@ -30,7 +30,10 @@ still scan it, so it can surface in a security run.)
 npm run dev          # dev server + HMR at http://localhost:5173
 npm run build        # production build to client/build/
 npm run start        # serve the built output
-npm run typecheck    # react-router typegen && tsc  — the only client check that exists
+npm run typecheck    # react-router typegen && tsc
+npm test             # vitest run over client/tests/
+npm run test:watch   # re-runs on save
+npx vitest run tests/waitlist.test.tsx   # single file
 
 # server/
 uv run uvicorn server.main:app --reload    # API; /docs is served unless APP_ENV=production
@@ -43,18 +46,27 @@ uv run ruff check . --fix
 uv run ruff format .
 ```
 
-There is **no client test runner and no JS linter** — don't invent `npm test` or
-`npm run lint`. On the server, pytest and ruff are configured in `pyproject.toml` and
-both are enforced by CI.
+There is **no JS linter** — don't invent `npm run lint`. On the server, pytest and ruff
+are configured in `pyproject.toml`; client tests run on Vitest, configured in
+`client/vitest.config.ts`. All three are enforced by CI.
 
 `.github/workflows/ci.yml` runs `ruff check`, `ruff format --check`, and `pytest -m "not
-live"` for the server, and `npm run typecheck` + `npm run build` for the client. A second
-workflow (`security.yml`) runs gitleaks, semgrep, `pip-audit`, `npm audit`, and zizmor, so
-a new dependency or a workflow edit can fail CI on its own.
+live"` for the server, and `npm run typecheck`, `npm test`, and `npm run build` for the
+client. A second workflow (`security.yml`) runs gitleaks, semgrep, `pip-audit`,
+`npm audit`, and zizmor, so a new dependency or a workflow edit can fail CI on its own.
 
 Tests never touch the network: `tests/conftest.py` stuffs fake Supabase settings into
 `os.environ` **before** importing `server.main`, because `core/config.py` crashes at import
 time on a missing variable. Anything that reaches the database gets `@pytest.mark.live`.
+
+Client tests sit flat in `client/tests/` on jsdom. `tests/setup.ts` adds the jest-dom
+matchers and cleanup, and stubs `window.matchMedia`, which jsdom lacks and `Reveal` reads.
+Route modules render through `createRoutesStub`, so actions and `useNavigation` behave as
+in the app; tests of a real action stub `fetch` and `API_URL`, so nothing reaches the API.
+`ssr.test.tsx` renders pages with `renderToString` in the node environment, which is what
+catches `window`/`document` reads during render — `npm run build` does not.
+`NOTE: change when removing waitlist` marks every expectation that assumes the sign-up
+CTAs lead to `/waitlist`.
 
 ## Server architecture
 
@@ -79,10 +91,11 @@ Pydantic response model.
 Reaching for `admin_db` in a public read silently disables row-level security. The choice
 of client *is* the authorization boundary.
 
-Today there is exactly **one** `admin_db` call: the appointment insert at the end of
-`make_appointment()`. It is privileged because an anonymous client legitimately needs to
-write a row it may not read back. Every read in the booking flow goes through `public_db`.
-Adding a second `admin_db` site is a decision to justify, not a convenience.
+Today there are exactly **two** `admin_db` calls: the appointment insert at the end of
+`make_appointment()`, and the waitlist insert in `join_waitlist()`. Both are privileged
+because an anonymous client legitimately needs to write a row it may not read back. Every
+read in the booking flow goes through `public_db`. Adding another `admin_db` site is a
+decision to justify, not a convenience.
 
 ### Public models drive the SQL, not just the response
 
@@ -122,7 +135,7 @@ its fields changes a query.
 
 ### Errors
 
-The query layer distinguishes four failure modes and routes must preserve the
+The query layer distinguishes five failure modes and routes must preserve the
 distinction. Query functions raise or return; **routes are the only place `HTTPException`
 is constructed**:
 
@@ -130,6 +143,8 @@ is constructed**:
 - `None` (no such row) → **404**.
 - `SlotTaken` → **409**. Booking flow only.
 - `BlankFirstName` → **422**. Booking flow only; checked before any query runs.
+- `InvalidSignup` → **422**. Waitlist only; a blank name or unusable email, checked before
+  any query runs.
 
 `_run(query, what)` in `sb_function.py` is the house idiom for reads: it catches `APIError`
 and `httpx.HTTPError`, logs, and re-raises as `DatabaseUnavailable`. `_run_write()` in

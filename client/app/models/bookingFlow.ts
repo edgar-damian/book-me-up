@@ -1,4 +1,19 @@
 /**
+ * The shop being booked at, for the page heading and footer.
+ */
+export type Establishment = {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  lat: number | null;
+  lng: number | null;
+  phone: string | null;
+  email: string | null;
+};
+
+/**
  * Dates on which at least one bookable slot exists for a given service.
  */
 export type DatesAvailable = {
@@ -9,7 +24,7 @@ export type DatesAvailable = {
   service_title: string;
   worker_name: string;
   worker_slug: string;
-  establishment_name: string;
+  establishment: Establishment;
 };
 
 /**

@@ -197,6 +197,19 @@ Appointment [icon: calendar-check, color: green] {
 // AppointmentStatus: PENDING | ACCEPTED | REJECTED | CANCELLED | COMPLETED | NO_SHOW
 // CancelledBy: CLIENT | WORKER | SYSTEM
 
+// ================= WAITLIST =================
+// signed up on the landing page before launch. not users, so nothing links
+// here. closed to anon, the server writes through admin_db
+WaitlistSignup [icon: mail, color: orange] {
+  id String pk
+  firstName String
+  lastName String
+  phone String  // E.164
+  email String unique  // stored lowercased
+  submittedAt DateTime
+  receivedOffer Boolean  // starts false, true once the launch offer goes out
+}
+
 User.id < EstablishmentOwner.userId
 Establishment.id < EstablishmentOwner.establishmentId
 

@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from server.models.booking import AppointmentBooked
+from server.models.booking import AppointmentBooked, DatesAvailable
 from server.supabase import booking
 from server.supabase.booking import SlotTaken, _Context, _ScheduleDay
 from server.supabase.sb_function import DatabaseUnavailable
@@ -32,7 +32,13 @@ def _open_chair(_establishment_id, _worker_id, _service_id, now_utc: datetime) -
         service_title="Skin fade",
         worker_name="Ricky Reyes",
         worker_slug="ricky-cuts",
-        establishment_name="Downtown Cuts",
+        establishment=DatesAvailable.Establishment(
+            name="Downtown Cuts",
+            address="512 Congress Ave",
+            city="Austin",
+            state="TX",
+            zip="78701",
+        ),
         price_cents=3500,
         duration_min=45,
         buffer_after_min=15,

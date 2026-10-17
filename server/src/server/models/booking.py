@@ -23,6 +23,19 @@ class DatesAvailable(BaseModel):
     Dates on which at least one bookable slot exists for a given service.
     """
 
+    class Establishment(BaseModel):
+        """The shop being booked at, for the page heading and footer."""
+
+        name: str
+        address: str
+        city: str
+        state: str
+        zip: str
+        lat: float | None = None
+        lng: float | None = None
+        phone: str | None = None
+        email: str | None = None
+
     timezone: str = Field(description="Timezone of the establishment.")
     window_start: date = Field(
         description="now -> worker_profile.min_lead_time_min (default of 60 min)"
@@ -34,7 +47,7 @@ class DatesAvailable(BaseModel):
     service_title: str
     worker_name: str
     worker_slug: str = Field(description="For the link back to the worker's page")
-    establishment_name: str
+    establishment: Establishment
 
 
 class TimesAvailable(BaseModel):

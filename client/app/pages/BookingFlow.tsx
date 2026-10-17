@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useNavigation, useSearchParams } from "react-router";
-import { Container, Spinner, WordmarkBar } from "~/widgets/kit";
+import { Container, Spinner } from "~/widgets/kit";
+import { SiteHeader } from "~/widgets/siteHeader";
+import { ShopFooter } from "~/widgets/shopFooter";
 import { Progress, type Step } from "~/widgets/BookingFlow/progress";
 import { Calendar } from "~/widgets/BookingFlow/calendar";
 import { TimeSlots } from "~/widgets/BookingFlow/timeSlot";
@@ -18,7 +20,7 @@ function Header({ dates }: { dates: DatesAvailable }) {
   return (
     <section className="pt-16 pb-12 md:pt-24 lg:pt-32">
       <Container>
-        <p className="text-eyebrow uppercase text-ink-muted">{dates.establishment_name}</p>
+        <p className="text-eyebrow uppercase text-ink-muted">{dates.establishment.name}</p>
         <h1 className="mt-3 max-w-4xl font-display text-display-1 text-ink">{dates.service_title}</h1>
         <p className="mt-6 max-w-2xl text-body-md text-ink-secondary">with {dates.worker_name}</p>
       </Container>
@@ -74,7 +76,7 @@ export function BookingFlow({
 
   return (
     <div className="overflow-x-clip bg-canvas-soft text-ink">
-      <WordmarkBar />
+      <SiteHeader company={false} />
       <main>
         <Header dates={dates} />
         <Container className="pb-16 md:pb-24">
@@ -93,6 +95,7 @@ export function BookingFlow({
           </div>
         </Container>
       </main>
+      <ShopFooter establishment={dates.establishment} />
     </div>
   );
 }

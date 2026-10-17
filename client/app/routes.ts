@@ -5,4 +5,5 @@ export default [
   route("shops/:slug", "routes/establishmentPage.tsx"),
   route("view-services/:slug", "routes/workerPage.tsx"),
   route("book-with/:establishmentId/:workerId/:serviceId", "routes/bookingFlow.tsx"),
+  route("waitlist", "routes/waitlist.tsx"),
 ] satisfies RouteConfig;

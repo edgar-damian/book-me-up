@@ -1,11 +1,12 @@
 from fastapi import APIRouter, HTTPException, Path, status
 
-from server.models.public_models import EstablishmentLandingPage, WorkerLandingPage
+from server.models.public_models import EstablishmentLandingPage, JoinWaitlist, WorkerLandingPage
 from server.supabase.sb_function import (
     DatabaseUnavailable,
     get_establishment_by_slug,
     get_worker_by_slug,
 )
+from server.supabase.waitlist import InvalidSignup, join_waitlist
 
 router = APIRouter()
 
@@ -86,3 +87,28 @@ def establishment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Establishment not found")
 
     return establishment
+
+
+@router.post(
+    "/waitlist",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={422: {"description": "Missing or unusable name, phone, or email"}},
+)
+def waitlist(signup: JoinWaitlist):
+    """
+    Args:
+        - signup (JoinWaitlist): first and last name, E.164 phone, and email
+
+    Returns:
+        - Nothing. A repeat email gets the same 204 as a new signup.
+    """
+    try:
+        join_waitlist(signup)
+    except InvalidSignup as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    except DatabaseUnavailable:
+        # Vague on purpose, logs are more descriptive and private
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
