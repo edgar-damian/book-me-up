@@ -218,6 +218,7 @@ const HERO = {
   headline: "Stop booking clients in your DMs.",
   body: "Share one link. Clients pick a time that's actually open, reminders go out on their own, and nobody double-books your chair.",
   primaryCta: { label: "Create my booking link", href: "#get-started" },
+  primatyCtaWaitlist: { label: "Join Wait List", href: "" }, // NOTE: this is only temporary while the application gets finished
   secondaryCta: { label: "See how it works", href: "#features" },
   footnote: "Set up in 5 minutes from your phone. Clients book in two taps — no app, no account.",
 };

@@ -1,6 +1,7 @@
 # AI agents
-CLAUDE.md
 AGENTS.md
+CLAUDE.md
+.claude/
 
 # Personal Claude Code permissions
 .claude/settings.local.json
