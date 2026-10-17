@@ -49,8 +49,15 @@ class WorkerLandingPage(BaseModel):
             id: UUID
             slug: str
             name: str
+            address: str
             city: str
+            state: str
+            zip: str
+            lat: float | None = None
+            lng: float | None = None
             timezone: str
+            phone: str | None = None
+            email: str | None = None
 
         class Day(BaseModel):
             model_config = ConfigDict(extra="ignore")

@@ -1,10 +1,17 @@
 import { Container, IconMapPin } from "~/widgets/kit";
 import type { Establishment } from "~/models/establishmentPage";
 
+/** The fields the footer reads. The shop, worker and booking pages each pass
+ *  a different establishment type; all three carry these. */
+type ShopContact = Pick<
+  Establishment,
+  "name" | "address" | "city" | "state" | "zip" | "lat" | "lng" | "phone" | "email"
+>;
 
-function DirectionsLink({ location }: { location: Establishment }) {
 
-  function getDirectionsUrl(loc: Establishment): string {
+function DirectionsLink({ location }: { location: ShopContact }) {
+
+  function getDirectionsUrl(loc: ShopContact): string {
     const destination =
       loc.lat !== null && loc.lng !== null
         ? `${loc.lat},${loc.lng}`
@@ -28,7 +35,7 @@ function DirectionsLink({ location }: { location: Establishment }) {
 
 /** Footer for pages that belong to a shop: its address, directions, and
  *  contact links, with no book-me-up branding. */
-export function ShopFooter({ establishment }: { establishment: Establishment }) {
+export function ShopFooter({ establishment }: { establishment: ShopContact }) {
   return (
     <footer className="border-t border-hairline bg-surface">
       <Container className="py-16">

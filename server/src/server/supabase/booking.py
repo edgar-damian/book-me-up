@@ -106,6 +106,14 @@ class _ChairContext(BaseModel):
 
         timezone: str
         name: str
+        address: str
+        city: str
+        state: str
+        zip: str
+        lat: float | None = None
+        lng: float | None = None
+        phone: str | None = None
+        email: str | None = None
 
     class Policy(BaseModel):
         """The worker_profile row: booking policy plus the public name."""
@@ -270,7 +278,7 @@ class _Context:
     service_title: str
     worker_name: str
     worker_slug: str
-    establishment_name: str
+    establishment: DatesAvailable.Establishment
     price_cents: int
     duration_min: int  # client-facing length
     buffer_after_min: int
@@ -360,7 +368,9 @@ def _load_context(
         service_title=svc.title,
         worker_name=f"{policy.first_name} {policy.last_name}".strip(),
         worker_slug=policy.slug,
-        establishment_name=chair.establishment.name,
+        establishment=DatesAvailable.Establishment.model_validate(
+            chair.establishment, from_attributes=True
+        ),
         price_cents=svc.price_cents,
         duration_min=svc.duration_min,
         buffer_after_min=svc.buffer_after_min,
@@ -479,7 +489,7 @@ def get_dates(
 
 
 def _dates_available(ctx: _Context, dates: list[date]) -> DatesAvailable:
-    """Step 1's response: the open days plus what is being booked, for the page header."""
+    """Step 1's response: the open days plus what is being booked, for the heading and footer."""
     return DatesAvailable(
         timezone=ctx.tz,
         window_start=ctx.window_start,
@@ -488,7 +498,7 @@ def _dates_available(ctx: _Context, dates: list[date]) -> DatesAvailable:
         service_title=ctx.service_title,
         worker_name=ctx.worker_name,
         worker_slug=ctx.worker_slug,
-        establishment_name=ctx.establishment_name,
+        establishment=ctx.establishment,
     )
 
 

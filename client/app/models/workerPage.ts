@@ -13,8 +13,15 @@ export type Establishment = {
   id: string;
   slug: string;
   name: string;
+  address: string;
   city: string;
+  state: string;
+  zip: string;
+  lat: number | null;
+  lng: number | null;
   timezone: string;
+  phone: string | null;
+  email: string | null;
 };
 
 export type Day = {

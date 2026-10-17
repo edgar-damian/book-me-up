@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Container, Reveal } from "~/widgets/kit";
 import { SiteHeader } from "~/widgets/siteHeader";
+import { ShopFooter } from "~/widgets/shopFooter";
 import { ServiceCard } from "~/widgets/WorkerPage/serviceCard";
 import {EstablishmentSelector} from "~/widgets/WorkerPage/establishmentSelector"
 import type {
@@ -134,6 +135,7 @@ export function WorkerPage({
           onNeedShop={handleNeedShop}
         />
       </main>
+      {chair && <ShopFooter establishment={chair.establishment} />}
     </div>
   );
 }
