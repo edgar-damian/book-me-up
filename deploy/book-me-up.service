@@ -1,0 +1,33 @@
+# The website: React Router on 127.0.0.1:3000, behind nginx.
+# Installed to /etc/systemd/system/ by setup-ec2.sh.
+[Unit]
+Description=book-me-up website
+After=network.target book-me-up-api.service
+# Wants rather than Requires, so the website stays up if the API fails.
+Wants=book-me-up-api.service
+
+[Service]
+Type=simple
+
+User=bookmeup
+Group=bookmeup
+
+WorkingDirectory=/opt/book-me-up/client
+ExecStart=/opt/book-me-up/client/node_modules/.bin/react-router-serve build/server/index.js
+
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+Environment=API_URL=http://127.0.0.1:8000
+
+Restart=always
+RestartSec=5
+
+# The app doesn't write to disk, so the whole filesystem can be read-only.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

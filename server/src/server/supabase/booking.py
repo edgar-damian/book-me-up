@@ -568,9 +568,9 @@ def get_times(
 
 def _clean(value: str, cap: int) -> str:
     """
-    Tidy one caller supplied string for storage. The insert is parameterized, 
-    and React escapes text when it renders it. NFC-normalizes, turns every 
-    _INVISIBLE character into a space, collapses whitespace, trims, then hard caps. 
+    Tidy one caller supplied string for storage. The insert is parameterized,
+    and React escapes text when it renders it. NFC-normalizes, turns every
+    _INVISIBLE character into a space, collapses whitespace, trims, then hard caps.
 
     Returns:
         The tidied string, or "" when nothing visible is left -- a name made of
