@@ -31,7 +31,6 @@ from server.models.booking import (
     DatesAvailable,
     TimesAvailable,
 )
-from server.supabase.injection_cleaning import injection_cleaning
 from server.supabase.sb_function import DatabaseUnavailable, _cols, _run, admin_db, public_db
 
 logger = logging.getLogger(__name__)
@@ -41,21 +40,22 @@ _GRID_MIN = 15  # show time slots in 15 min intervals
 # triggered when the slot went to someone else mid flow
 _EXCLUSION_VIOLATION = "23P01"
 
-# Caps on anything the caller sends us, applied after scrubbing.
+# Storage caps, applied by _clean after tidying. Notes match the form's maxLength.
 _NAME_CAP = 100
 _EMAIL_CAP = 254
-_PHONE_CAP = 16
 _NOTES_CAP = 1000
-_E164 = re.compile(r"\+[1-9][0-9]{1,14}")
 
-# Order handed to injection_cleaning, and what its [index] reasons refer to.
-_SCANNED_FIELDS = ("first_name", "last_name", "phone", "email", "notes")
+_INVISIBLE = re.compile(r"[\x00-\x1f\x7f-\x9f\u202A-\u202E\u2066-\u2069\ud800-\udfff]")
 
 _BusyInterval = tuple[datetime, datetime]  # Aware instants, half-open [start, end).
 
 
 class SlotTaken(RuntimeError):
     """Someone booked this slot first. Route turns this into a 409, not a 503."""
+
+
+class BlankFirstName(ValueError):
+    """Nothing visible was left of the first name. Route turns this into a 422."""
 
 
 def _run_write(query, what: str):
@@ -566,35 +566,29 @@ def get_times(
     return TimesAvailable(timezone=ctx.tz, day_chose=day, valid_slots=slots)
 
 
-def _clean(value: object, cap: int) -> str:
+def _clean(value: str, cap: int) -> str:
     """
-    Scrub one caller supplied string. Coerces to str, folds compatibility and
-    homoglyph forms, drops every unicode C* char (control, zero-width, bidi
-    override, surrogate, unassigned), collapses whitespace, then hard caps.
+    Tidy one caller supplied string for storage. The insert is parameterized,
+    and React escapes text when it renders it. NFC-normalizes, turns every
+    _INVISIBLE character into a space, collapses whitespace, trims, then hard caps.
+
+    Returns:
+        The tidied string, or "" when nothing visible is left -- a name made of
+        zero-width spaces is still blank.
     """
-    s = unicodedata.normalize("NFKC", str(value))
-    s = "".join(c for c in s if c == " " or not unicodedata.category(c).startswith("C"))
-    return " ".join(s.split())[:cap]
+    s = _INVISIBLE.sub(" ", unicodedata.normalize("NFC", value))
+    s = " ".join(s.split())[:cap].rstrip()
+    return s if any(unicodedata.category(c)[0] not in "CZ" for c in s) else ""
 
 
-def _named_reasons(reasons: list[str] | None) -> str:
-    """Swap injection_cleaning's positional [0] for the field it came from."""
-    if not reasons:
-        return "unknown"
-    out = []
-    for r in reasons:
-        for i, field in enumerate(_SCANNED_FIELDS):
-            if r.startswith(f"[{i}]"):
-                out.append(f"{field}{r.split(']', 1)[1]}")
-                break
-        else:
-            out.append(r)
-    return "; ".join(out)
+def _clean_email(value: str) -> str | None:
+    """
+    Cheap shape check. A junk address is dropped, it never fails the booking.
 
-
-def _clean_email(value: object) -> str | None:
-    """Cheap shape check. A junk address is dropped, it never fails the booking."""
-    s = _clean(value, _EMAIL_CAP).lower()
+    NFKC here, unlike the other fields: an address is an identifier, so the
+    full-width characters a CJK keyboard can produce should fold to ASCII.
+    """
+    s = _clean(unicodedata.normalize("NFKC", value), _EMAIL_CAP).lower()
     if s.count("@") != 1:
         return None
     local, _, domain = s.partition("@")
@@ -607,9 +601,9 @@ def make_appointment(
     now_utc: datetime | None = None,
 ) -> AppointmentBooked | None:
     """
-    Step 3, the user chose a day and time. Nothing the caller sent is trusted:
-    every string is scrubbed, and the slot, price and duration are re-derived
-    from the database before the row is written.
+    Step 3, the user chose a day and time. Only the client's own details come
+    from the request: the free text is tidied by _clean, and the slot, price
+    and duration are re-derived from the database before the row is written.
 
     Args:
         - apt (BookAppointment): object built and handed to us by the user
@@ -617,10 +611,11 @@ def make_appointment(
 
     Returns:
         - AppointmentBooked on success
-        - None: unusable client details, or no active chair/service. Route
-          turns this into a 404.
+        - None: no active chair/service. Route turns this into a 404.
 
     Raises:
+        - BlankFirstName: nothing visible left in the first name. Route turns
+          this into a 422.
         - SlotTaken: the slot is not one we offer, or someone booked it first.
           Route turns this into a 409.
         - DatabaseUnavailable: query failure or a row that failed validation.
@@ -628,33 +623,14 @@ def make_appointment(
     if now_utc is None:
         now_utc = datetime.now(UTC)
 
-    # run a basic clean function
     first_name = _clean(apt.client.first_name, _NAME_CAP)
     last_name = _clean(apt.client.last_name, _NAME_CAP)
-    phone = _clean(apt.client.phone, _PHONE_CAP)
     email = _clean_email(apt.client.email) if apt.client.email is not None else None
-    notes = _clean(apt.notes, _NOTES_CAP) or None if apt.notes is not None else None
+    notes = (_clean(apt.notes, _NOTES_CAP) or None) if apt.notes is not None else None
 
-    # Second pass: reject outright anything nobody types by hand, defang the
-    # rest. Order matters -- this rewrites the strings, so the checks below run
-    # on what actually gets stored, not on what arrived.
-    ok, reasons, cleaned = injection_cleaning(
-        [first_name, last_name, phone, email or "", notes or ""]
-    )
-    if not ok:
-        logger.warning(
-            "rejected booking for worker=%s, hostile input in %s",
-            apt.worker_id,
-            _named_reasons(reasons),
-        )
-        return None
-    first_name, last_name, phone, email, notes = cleaned
-    email = email or None
-    notes = notes or None
-
-    if not first_name or not _E164.fullmatch(phone):
-        logger.info("rejected booking with unusable client details")
-        return None
+    if not first_name:
+        logger.info("rejected booking with a blank first name for worker=%s", apt.worker_id)
+        raise BlankFirstName()
 
     ctx = _load_context(apt.establishment_id, apt.worker_id, apt.service_id, now_utc)
     if ctx is None:
@@ -687,7 +663,8 @@ def make_appointment(
         else now_utc + timedelta(hours=ctx.hold_expiry_hours)
     )
 
-    # Every value here is either server read or scrubbed
+    # Every value here is read from the database, tidied by _clean, or
+    # validated by BookAppointment.
     row = {
         "worker_establishment_id": str(ctx.chair_id),
         "establishment_id": str(apt.establishment_id),
@@ -701,13 +678,14 @@ def make_appointment(
         "buffer_after_min": ctx.buffer_after_min,
         "status": str(status),
         "client_name": f"{first_name} {last_name}".strip(),
-        "client_phone": phone,
+        "client_phone": apt.client.phone,
         "client_email": email,
         "client_notes": notes,
         "hold_expires_at": hold_expires_at.isoformat() if hold_expires_at else None,
     }
 
-    # NOTE: uses anon key
+    # admin_db, the one privileged call in this flow: anon has no insert policy
+    # on appointment, and no select policy to read the new row back.
     resp = _run_write(admin_db.table("appointment").insert(row), "appointment insert")
     if not resp.data:
         raise DatabaseUnavailable("insert returned no row")

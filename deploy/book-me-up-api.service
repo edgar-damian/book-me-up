@@ -1,0 +1,35 @@
+# The API: FastAPI on 127.0.0.1:8000. Reached by the website, and publicly
+# only through nginx's /api/health. Installed to /etc/systemd/system/ by setup-ec2.sh.
+[Unit]
+Description=book-me-up API
+After=network.target
+# Skipped rather than failed until the keys exist, so it doesn't crash-loop.
+ConditionPathExists=/etc/book-me-up/api.env
+
+[Service]
+Type=simple
+
+User=bookmeup
+Group=bookmeup
+
+WorkingDirectory=/opt/book-me-up/server
+ExecStart=/opt/book-me-up/server/.venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000
+
+# Supabase keys plus APP_ENV=production. Read by systemd as root.
+EnvironmentFile=/etc/book-me-up/api.env
+
+# No .pyc files, since the filesystem is read-only.
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+
+Restart=always
+RestartSec=5
+
+# The app doesn't write to disk, so the whole filesystem can be read-only.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
