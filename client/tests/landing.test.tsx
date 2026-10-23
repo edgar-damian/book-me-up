@@ -7,7 +7,6 @@ import { expectHeadingOutline } from "./helpers";
 
 // Pages not built yet.
 const PLACEHOLDERS = [
-  "#login", // NOTE: change when removing waitlist
   "/#about",
   "/#contact",
   "/#privacy",
@@ -38,6 +37,12 @@ describe("landing page", () => {
       ...screen.getAllByRole("link", { name: "Join a waitlist" }),
     ];
     for (const cta of ctas) expect(cta).toHaveAttribute("href", "/waitlist");
+  });
+
+  it("sends every Log in link to the login page", () => {
+    renderLanding();
+    const links = screen.getAllByRole("link", { name: "Log in" });
+    for (const link of links) expect(link).toHaveAttribute("href", "/login");
   });
 
   it("links only to routes that exist and to sections on the page", () => {
