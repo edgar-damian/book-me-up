@@ -108,7 +108,7 @@ export function SiteHeader({ company }: { company: boolean }) {
 
               <div className="hidden items-center gap-2 md:flex">
                 <a
-                  href="#login"
+                  href="/login"
                   className="inline-flex min-h-11 items-center rounded-md px-3 text-body-sm text-primary-text transition-colors duration-120 ease-standard hover:bg-hover-wash"
                 >
                   Log in
@@ -191,7 +191,7 @@ export function SiteHeader({ company }: { company: boolean }) {
 
             <div className="flex flex-col gap-2">
               <Cta href="/waitlist">Join a waitlist</Cta>
-              <Cta href="#login" variant="secondary">
+              <Cta href="/login" variant="secondary">
                 Log in
               </Cta>
             </div>

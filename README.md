@@ -35,6 +35,12 @@ cp server/.env.example server/.env   # then fill in the values
 Without that file, `start.sh` prints a warning, skips the API, and starts only the
 website. The home page works, but pages that load shop or barber data don't.
 
+The website also needs `SESSION_SECRET`, which signs the login cookie. `start.sh` and
+`deploy/setup-ec2.sh` generate it for you. Any other way of running the site
+(`npm run dev` on its own, Docker, another host) needs it set by hand, in `client/.env`
+or the environment, to a random value such as the output of `openssl rand -hex 32`.
+Without it, only logging in fails.
+
 ## Database
 
 The database is hosted on Supabase, so there is nothing to set up locally and `start.sh`

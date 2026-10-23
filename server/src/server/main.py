@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.core.config import settings
 from server.routes.apis import router
+from server.routes.auth import router as auth_router
 from server.routes.booking import router as booking_router
 
 logging.basicConfig(
@@ -34,3 +35,4 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(booking_router)
+app.include_router(auth_router)

@@ -19,6 +19,8 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOST=127.0.0.1
 Environment=API_URL=http://127.0.0.1:8000
+# SESSION_SECRET, which signs the login cookie. "-" lets the site start without the file.
+EnvironmentFile=-/etc/book-me-up/web.env
 
 Restart=always
 RestartSec=5
