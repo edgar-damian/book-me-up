@@ -1,6 +1,6 @@
 """
 Bodies for worker login. The password is a SecretStr, so it prints as
-********** if the model is ever logged.
+" ********** " if the model is ever logged.
 """
 
 from pydantic import BaseModel, Field, SecretStr
