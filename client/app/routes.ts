@@ -6,4 +6,6 @@ export default [
   route("view-services/:slug", "routes/workerPage.tsx"),
   route("book-with/:establishmentId/:workerId/:serviceId", "routes/bookingFlow.tsx"),
   route("waitlist", "routes/waitlist.tsx"),
+  route("login", "routes/login.tsx"),
+  route("dashboard", "routes/dashboard.tsx"),
 ] satisfies RouteConfig;

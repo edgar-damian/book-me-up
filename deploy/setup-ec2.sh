@@ -27,7 +27,7 @@ UV_VERSION="0.12.1"
 # can't read. Also set in deploy.sh.
 PYTHON_DIR="/opt/uv-python"
 
-# Holds api.env, the API's Supabase keys.
+# Holds api.env, the API's Supabase keys, and web.env, the website's cookie secret.
 SECRETS_DIR="/etc/book-me-up"
 
 # Also in nginx-book-me-up-https.conf.
@@ -115,6 +115,15 @@ chmod 755 "$PYTHON_DIR"
 # systemd reads api.env as root, so the service account needs no access to it.
 mkdir -p "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR"
+
+# The website's cookie secret is generated here, so it never leaves this server.
+# A re-run keeps it, since a new one would log everyone out.
+if [ ! -s "$SECRETS_DIR/web.env" ]; then
+    secret="$(openssl rand -hex 32)"
+    (umask 077 && printf 'SESSION_SECRET=%s\n' "$secret" > "$SECRETS_DIR/web.env")
+else
+    echo "$SECRETS_DIR/web.env already exists, leaving it alone"
+fi
 
 say "Installing the systemd services"
 

@@ -194,6 +194,10 @@ fi
 # and uvicorn only listens on IPv4.
 export API_URL="http://127.0.0.1:${API_PORT}"
 
+# Signs the login cookie. react-router-serve doesn't read client/.env, and a new
+# secret each run only means logging in again after a restart.
+export SESSION_SECRET="${SESSION_SECRET:-$(node -p 'require("crypto").randomBytes(32).toString("hex")')}"
+
 API_PID=""
 
 stop_api() {
