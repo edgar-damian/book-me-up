@@ -1,6 +1,8 @@
 """ """
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import httpx
 from postgrest import APIError
@@ -34,11 +36,54 @@ class DatabaseUnavailable(RuntimeError):
     """Supabase refused or failed the query. Never surfaced to the client verbatim."""
 
 
+class NotSignedIn(RuntimeError):
+    """The caller's access token is missing, invalid, or expired. Route turns this into a 401."""
+
+
+# PostgREST's codes for a token it could not decode or whose claims failed, such
+# as an expiry that passed between the API's own check and the query.
+_TOKEN_REJECTED = frozenset({"PGRST301", "PGRST303"})
+
+
+@contextmanager
+def user_db(access_token: str) -> Iterator[Client]:
+    """
+    A client whose queries run as the signed-in user, so RLS sees auth.uid().
+    Built per request, never shared: the Authorization header is that user's.
+    """
+    with httpx.Client(timeout=_TIMEOUT) as http:
+        yield create_client(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_PUBLISHABLE_KEY.get_secret_value(),
+            options=ClientOptions(
+                httpx_client=http,
+                headers={"Authorization": f"Bearer {access_token}"},
+                persist_session=False,
+                auto_refresh_token=False,
+            ),
+        )
+
+
 def _run(query, what: str):
     """Execute a PostgREST query under the house error idiom (failure -> 503)."""
     try:
         return query.execute()
     except (APIError, httpx.HTTPError) as exc:
+        logger.exception("%s query failed", what)
+        raise DatabaseUnavailable(str(exc)) from exc
+
+
+def _run_as_user(query, what: str):
+    """_run for a user_db query: a rejected token is NotSignedIn, not an outage."""
+    try:
+        return query.execute()
+    except APIError as exc:
+        if exc.code in _TOKEN_REJECTED:
+            logger.info("%s query rejected the jwt: %s", what, exc.code)
+            raise NotSignedIn(exc.code) from exc
+        logger.exception("%s query failed", what)
+        raise DatabaseUnavailable(str(exc)) from exc
+    except httpx.HTTPError as exc:
         logger.exception("%s query failed", what)
         raise DatabaseUnavailable(str(exc)) from exc
 
