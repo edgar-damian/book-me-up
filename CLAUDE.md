@@ -81,12 +81,16 @@ every rule lives in the matching `supabase/` module.
 Request path: route → query module → Supabase → `to_public()` / `model_validate()` →
 Pydantic response model.
 
-### Two Supabase clients with different privileges
+### Supabase clients with different privileges
 
-`sb_function.py` builds both at import time:
+`sb_function.py` builds the first two at import time:
 
 - **`public_db`** — publishable key, **RLS enforced**. Everything a public endpoint touches.
 - **`admin_db`** — secret key, **RLS bypassing**. Privileged server-side work only.
+- **`user_db(access_token)`** — a context manager that builds a client per request carrying
+  the signed-in user's token, so RLS sees `auth.uid()`. Never shared or cached, and only
+  used after the `current_user` dependency in `routes/auth.py` has verified the token.
+  Run its queries through `_run_as_user`, which turns a rejected token into `NotSignedIn`.
 
 Reaching for `admin_db` in a public read silently disables row-level security. The choice
 of client *is* the authorization boundary.
@@ -135,11 +139,13 @@ its fields changes a query.
 
 ### Errors
 
-The query layer distinguishes five failure modes and routes must preserve the
+The query layer distinguishes these failure modes and routes must preserve the
 distinction. Query functions raise or return; **routes are the only place `HTTPException`
 is constructed**:
 
 - `DatabaseUnavailable` → **503**, message deliberately vague. Detail goes to logs only.
+- `NotSignedIn` → **401**. A missing, invalid, or expired access token, caught by
+  `verify_token` or by PostgREST through `_run_as_user`.
 - `None` (no such row) → **404**.
 - `SlotTaken` → **409**. Booking flow only.
 - `BlankFirstName` → **422**. Booking flow only; checked before any query runs.
