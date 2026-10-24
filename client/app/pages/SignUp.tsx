@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { Form, useNavigation } from "react-router";
-import { Container, Input, Spinner } from "~/widgets/kit";
+import { Container, Input, Spinner, toE164 } from "~/widgets/kit";
 import { SiteHeader } from "~/widgets/siteHeader";
 import { CompanyFooter } from "~/widgets/companyFooter";
 
 
-type Field = "email" | "password";
+type Field = "first_name" | "last_name" | "email" | "phone" | "password" | "confirm_password";
 type Errors = Partial<Record<Field, string>>;
 
-const FIELDS: Field[] = ["email", "password"];
+// In the order they appear, so a failed submit focuses the topmost problem.
+const FIELDS: Field[] = ["first_name", "last_name", "email", "phone", "password", "confirm_password"];
 
 /** Same shape check as the waitlist: one @, and a dot in the domain. */
 function isEmail(value: string) {
@@ -16,10 +17,21 @@ function isEmail(value: string) {
   return local !== "" && rest.length === 0 && (domain ?? "").includes(".");
 }
 
+function valueOf(form: HTMLFormElement, name: Field) {
+  return (form.elements.namedItem(name) as HTMLInputElement).value;
+}
+
 // Spaces can be part of a password, so it is checked for presence and not trimmed.
-function check(name: Field, value: string) {
+function check(name: Field, value: string, form: HTMLFormElement) {
   if (name === "email") return isEmail(value) ? undefined : "Enter an email address";
-  return value ? undefined : "Enter your password";
+  if (name === "phone") return toE164(value) ? undefined : "Enter a phone number with area code";
+  if (name === "password") return value ? undefined : "Enter your password";
+  if (name === "confirm_password") {
+    if (!value) return "Enter your password again";
+    return value === valueOf(form, "password") ? undefined : "Passwords don't match";
+  }
+  if (value.trim()) return undefined;
+  return name === "first_name" ? "Enter your first name" : "Enter your last name";
 }
 
 
@@ -28,17 +40,27 @@ export function SignUp({ error }: { error: string | null }) {
   // formMethod stays "POST" through the redirect after a sign-up, when state has already moved to "loading".
   const busy = useNavigation().formMethod === "POST";
 
+  // A valid phone is rewritten in place so what is posted is what is shown.
   function blur(e: React.FocusEvent<HTMLInputElement>) {
-    const name = e.target.name as Field;
-    const value = e.target.value;
-    setErrors((cur) => ({ ...cur, [name]: check(name, value) }));
+    const input = e.target;
+    const form = input.form!;
+    const name = input.name as Field;
+    if (name === "phone" && toE164(input.value)) input.value = toE164(input.value)!;
+    const next: Errors = {};
+    next[name] = check(name, input.value, form);
+    // A new password can fix or break a confirmation that is already typed.
+    const confirm = valueOf(form, "confirm_password");
+    if (name === "password" && confirm) next.confirm_password = check("confirm_password", confirm, form);
+    setErrors((cur) => ({ ...cur, ...next }));
   }
 
   function submit(e: React.SubmitEvent<HTMLFormElement>) {
     const form = e.currentTarget;
+    const phone = form.elements.namedItem("phone") as HTMLInputElement;
+    if (toE164(phone.value)) phone.value = toE164(phone.value)!;
     const next: Errors = {};
     for (const name of FIELDS) {
-      const problem = check(name, (form.elements.namedItem(name) as HTMLInputElement).value);
+      const problem = check(name, valueOf(form, name), form);
       if (problem) next[name] = problem;
     }
     setErrors(next);
@@ -61,8 +83,8 @@ export function SignUp({ error }: { error: string | null }) {
             <div className="mt-10 max-w-md rounded-xl border border-hairline bg-surface p-6">
               <Form method="post" noValidate onSubmit={submit} className="grid gap-4 text-body-sm">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Input name="first_name" label="First name" autoComplete="given-name" required />
-                  <Input name="last_name" label="Last name" autoComplete="family-name" required />
+                  <Input name="first_name" label="First name" autoComplete="given-name" required onBlur={blur} error={errors.first_name} />
+                  <Input name="last_name" label="Last name" autoComplete="family-name" required onBlur={blur} error={errors.last_name} />
                 </div>
                 {/* `username` is what password managers pair with `new-password`. */}
                 <Input
@@ -82,6 +104,8 @@ export function SignUp({ error }: { error: string | null }) {
                   inputMode="tel"
                   autoComplete="tel"
                   required
+                  onBlur={blur}
+                  error={errors.phone}
                 />
                 <Input
                   name="password"
@@ -98,6 +122,8 @@ export function SignUp({ error }: { error: string | null }) {
                   type="password"
                   autoComplete="new-password"
                   required
+                  onBlur={blur}
+                  error={errors.confirm_password}
                 />
 
                 {error && (

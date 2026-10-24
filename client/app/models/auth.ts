@@ -17,6 +17,18 @@ export type LoggedIn = {
 };
 
 /**
+ * What the sign-up form posts. confirm_password is checked by the page and the
+ * action, and never sent.
+ */
+export type NewAppUser = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  password: string;
+};
+
+/**
  * What the client posts to trade its refresh token for a new session.
  */
 export type RefreshSession = {
