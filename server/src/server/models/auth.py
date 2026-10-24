@@ -19,3 +19,11 @@ class LoggedIn(BaseModel):
     access_token: str
     refresh_token: str
     expires_at: int
+
+class NewAppUser(BaseModel):
+    """New users who are filling out the SingUp Page """
+    first_name: str
+    last_name: str
+    email: str
+    phone: int
+    password: SecretStr

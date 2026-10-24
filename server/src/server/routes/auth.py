@@ -37,3 +37,30 @@ def login(credentials: LogIn):
         )
 
     return session
+
+
+@router.post(
+    "/signup",
+    response_model=LoggedIn,
+    responses={401: {"description": "Wrong email or password"}},
+)
+def signup(credentials: LogIn):
+    """
+    Trades an email and password for a Supabase session. The access token
+    authenticates later requests and the refresh token renews it once it expires.
+    """
+    try:
+        session = sign_in(credentials)
+    except InvalidCredentials:
+        # One message for both cases, so the form can't reveal which emails have accounts.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+    return session
