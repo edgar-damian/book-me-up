@@ -273,7 +273,7 @@ def verify_token(token: str) -> Caller:
         logger.exception("signing keys unreachable")
         raise DatabaseUnavailable(str(exc)) from exc
     except jwt.PyJWTError as exc:
-        logger.info("token rejected: %s", type(exc).__name__)
+        logger.info("jwt rejected: %s", type(exc).__name__)
         raise NotSignedIn(type(exc).__name__) from exc
 
     return Caller(user_id=claims["sub"], access_token=token)

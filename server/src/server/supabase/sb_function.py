@@ -79,7 +79,7 @@ def _run_as_user(query, what: str):
         return query.execute()
     except APIError as exc:
         if exc.code in _TOKEN_REJECTED:
-            logger.info("%s query rejected the token: %s", what, exc.code)
+            logger.info("%s query rejected the jwt: %s", what, exc.code)
             raise NotSignedIn(exc.code) from exc
         logger.exception("%s query failed", what)
         raise DatabaseUnavailable(str(exc)) from exc
