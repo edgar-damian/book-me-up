@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import Home from "~/routes/home";
 import WaitListRoute from "~/routes/waitlist";
 import LogInRoute from "~/routes/login";
+import SignUpRoute from "~/routes/signup";
 
 // Every first visit is server-rendered, so a page that reads window or
 // document during render breaks here even though `npm run build` passes.
@@ -29,6 +30,14 @@ describe("server rendering", () => {
   it("renders the login page without a browser", () => {
     const Stub = createRoutesStub([{ path: "/login", Component: LogInRoute }]);
     const html = renderToString(<Stub initialEntries={["/login"]} />);
+
+    expect(html).toContain("<main");
+    expect(html).toContain("<h1");
+  });
+
+  it("renders the sign-up page without a browser", () => {
+    const Stub = createRoutesStub([{ path: "/signup", Component: SignUpRoute }]);
+    const html = renderToString(<Stub initialEntries={["/signup"]} />);
 
     expect(html).toContain("<main");
     expect(html).toContain("<h1");

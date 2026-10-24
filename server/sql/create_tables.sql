@@ -570,12 +570,21 @@ create policy service_public_read on public.service
   for select using (is_active);
 
 -- ---- own account ----
+-- Read-only. The auth triggers keep this row in sync, and a writable row would
+-- let a user set their own is_platform_admin. The revoke keeps writes closed
+-- even if a later policy opens them.
 create policy app_user_self on public.app_user
-  for all using (id = auth.uid()) with check (id = auth.uid());
+  for select using (id = auth.uid());
+
+revoke insert, update, delete on public.app_user from anon, authenticated;
 
 -- ---- shop owners manage their shops ----
 create policy establishment_owner_write on public.establishment
   for update using (owns_establishment(id)) with check (owns_establishment(id));
+
+-- Owners see their own shops while they are still hidden.
+create policy establishment_owner_read_own on public.establishment
+  for select using (owns_establishment(id));
 
 create policy establishment_owner_read on public.establishment_owner
   for select using (user_id = auth.uid() or owns_establishment(establishment_id));
@@ -583,6 +592,15 @@ create policy establishment_owner_read on public.establishment_owner
 -- ---- workers manage their own chair ----
 create policy worker_profile_self_write on public.worker_profile
   for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- New profiles start hidden. The worker turns is_active on through
+-- worker_profile_self_write. Self-read shows the hidden row, which an insert
+-- also needs to return it.
+create policy worker_profile_self_read on public.worker_profile
+  for select using (user_id = auth.uid());
+
+create policy worker_profile_self_insert on public.worker_profile
+  for insert with check (user_id = auth.uid() and not is_active);
 
 create policy worker_establishment_self on public.worker_establishment
   for all using (worker_id = current_worker_id() or owns_establishment(establishment_id))
@@ -630,6 +648,46 @@ create policy appointment_worker_write on public.appointment
 
 create policy appointment_platform_admin on public.appointment
   for all using (is_platform_admin()) with check (is_platform_admin());
+
+-- ---- creating a shop ----
+-- The only way to create a shop. An insert policy on establishment_owner would
+-- let anyone claim any shop, so this writes both rows in one transaction with
+-- the caller as owner. Shops start hidden; a taken slug fails on
+-- establishment_slug_key.
+create or replace function public.create_establishment(
+  slug     text,
+  name     text,
+  address  text,
+  city     text,
+  state    text,
+  zip      text,
+  timezone text,
+  phone    text default null,
+  email    text default null
+)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  new_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'sign in to create a shop' using errcode = '42501';
+  end if;
+
+  insert into public.establishment
+    (slug, name, address, city, state, zip, timezone, phone, email, is_active)
+  values
+    (slug, name, address, city, state, zip, timezone, phone, email, false)
+  returning id into new_id;
+
+  insert into public.establishment_owner (user_id, establishment_id, can_manage_billing)
+  values (auth.uid(), new_id, true);
+
+  return new_id;
+end;
+$$;
+
+revoke execute on function public.create_establishment(text, text, text, text, text, text, text, text, text) from public, anon;
+grant  execute on function public.create_establishment(text, text, text, text, text, text, text, text, text) to authenticated;
 
 
 -- ============================================================================

@@ -2,7 +2,7 @@ import { Container } from "~/widgets/kit";
 import { SiteHeader } from "~/widgets/siteHeader";
 import { CompanyFooter } from "~/widgets/companyFooter";
 
-export function Dashboard() {
+export function Dashboard({ firstName }: { firstName: string }) {
   return (
     <div className="overflow-x-clip bg-canvas-soft text-ink">
       <SiteHeader company />
@@ -11,7 +11,7 @@ export function Dashboard() {
           <Container>
             <h1 className="font-display text-display-1 text-ink">Dashboard</h1>
             <p className="mt-6 max-w-2xl text-pretty text-body-md text-ink-secondary">
-              You're logged in.
+              Hi, {firstName}. You're logged in.
             </p>
           </Container>
         </section>

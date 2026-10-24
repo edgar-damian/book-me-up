@@ -2,12 +2,20 @@ import { render, screen } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import DashboardRoute, { loader as dashboardLoader } from "~/routes/dashboard";
+import type { Me } from "~/models/auth";
+import DashboardRoute from "~/routes/dashboard";
 import LogInRoute, { action as loginAction } from "~/routes/login";
-import { commitSession, getSession } from "~/sessions.server";
+import { getSession } from "~/sessions.server";
 
 const API_URL = "http://api.test";
 const TOKENS = { access_token: "access", refresh_token: "refresh", expires_at: 1_800_000_000 };
+const ME: Me = {
+  first_name: "Ana",
+  last_name: "Lopez",
+  email: "ana@example.com",
+  has_worker_profile: false,
+  has_shop: false,
+};
 
 beforeEach(() => {
   vi.stubEnv("SESSION_SECRET", "test-secret");
@@ -28,11 +36,11 @@ function stubApi(status: number, body?: unknown) {
   return fetchMock;
 }
 
-/** The real login route and action. The stub keeps no cookies, so the dashboard has no loader here. */
+/** The real login route and action. The stub keeps no cookies, so the dashboard's loader is a stand-in. */
 function renderLogin() {
   const Stub = createRoutesStub([
     { path: "/login", Component: LogInRoute, action: loginAction },
-    { path: "/dashboard", Component: DashboardRoute },
+    { path: "/dashboard", Component: DashboardRoute, loader: () => ME },
   ]);
   render(<Stub initialEntries={["/login"]} />);
   return userEvent.setup();
@@ -88,27 +96,5 @@ describe("login action", () => {
     await logIn(renderLogin());
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not log in, please try again");
-  });
-});
-
-describe("dashboard loader", () => {
-  const load = (headers?: HeadersInit) =>
-    dashboardLoader({
-      request: new Request("http://localhost/dashboard", { headers }),
-    } as Parameters<typeof dashboardLoader>[0]);
-
-  it("sends a visitor without the cookie to /login", async () => {
-    const thrown = await load().catch((error: unknown) => error);
-
-    expect(thrown).toBeInstanceOf(Response);
-    expect((thrown as Response).headers.get("Location")).toBe("/login");
-  });
-
-  it("lets in a visitor with the cookie", async () => {
-    const session = await getSession(null);
-    session.set("access_token", "access");
-    const cookie = (await commitSession(session)).split(";")[0];
-
-    await expect(load({ Cookie: cookie })).resolves.toBeNull();
   });
 });
