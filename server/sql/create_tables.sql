@@ -602,9 +602,32 @@ create policy worker_profile_self_read on public.worker_profile
 create policy worker_profile_self_insert on public.worker_profile
   for insert with check (user_id = auth.uid() and not is_active);
 
-create policy worker_establishment_self on public.worker_establishment
-  for all using (worker_id = current_worker_id() or owns_establishment(establishment_id))
-  with check (worker_id = current_worker_id() or owns_establishment(establishment_id));
+-- Joining a shop is a request: the worker inserts the chair inactive and only
+-- an owner of that shop turns it on. An owner may add their own chair active,
+-- never someone else's.
+create policy worker_establishment_self_read on public.worker_establishment
+  for select using (worker_id = current_worker_id() or owns_establishment(establishment_id));
+
+create policy worker_establishment_self_insert on public.worker_establishment
+  for insert with check (
+    worker_id = current_worker_id()
+    and (not is_active or owns_establishment(establishment_id))
+  );
+
+create policy worker_establishment_self_update on public.worker_establishment
+  for update using (worker_id = current_worker_id() or owns_establishment(establishment_id))
+  with check (
+    (worker_id = current_worker_id() and not is_active)
+    or owns_establishment(establishment_id)
+  );
+
+create policy worker_establishment_self_delete on public.worker_establishment
+  for delete using (worker_id = current_worker_id() or owns_establishment(establishment_id));
+
+-- A policy can't compare a row to its old version, so which worker and which
+-- shop a chair belongs to are closed to updates by column instead.
+revoke update on public.worker_establishment from anon, authenticated;
+grant update (is_active, started_at, ended_at) on public.worker_establishment to authenticated;
 
 create policy worker_schedule_day_self on public.worker_schedule_day
   for all using (
