@@ -8,10 +8,10 @@ secret; a silent fallback is how the wrong key reaches production.
 """
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"  # -> server/.env
 
@@ -31,7 +31,10 @@ class Settings(BaseSettings):
 
     # Browser origins allowed to call this API. Must be explicit in production:
     # "*" plus credentials is rejected by browsers and leaks the API to any site.
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
