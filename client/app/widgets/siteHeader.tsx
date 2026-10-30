@@ -11,12 +11,31 @@ const NAV_LINKS = [
   { label: "Free Trial", href: "/#pricing" },
 ];
 
-/** Sticky top bar on every page; the wordmark links home.
+// A signed-in worker's own pages. None has an href yet, so each renders as a
+// placeholder link until its page exists.
+const SHOP_LINKS: { label: string; href?: string }[] = [
+  { label: "Time off" },
+  { label: "Hours" },
+  { label: "Services" },
+  { label: "Profile" },
+];
+
+// Log out has no handler yet, so it ends no session.
+const LOG_OUT =
+  "inline-flex min-h-11 items-center justify-center rounded-md border border-border-input bg-surface px-4 " +
+  "text-button text-ink transition-colors duration-120 ease-standard hover:bg-hover-wash active:bg-press-wash";
+
+/** One set of links or neither, never both. */
+type Props = { company: boolean; shop?: false } | { company?: false; shop: boolean };
+
+/** Sticky top bar on every page.
  *
  *  `company` adds book-me-up's own navigation: section links, Log in / Get
- *  started, and the mobile menu. Pages that belong to a shop or a barber pass
- *  `false` and show the wordmark alone. */
-export function SiteHeader({ company }: { company: boolean }) {
+ *  started, and the mobile menu. `shop` adds a signed-in worker's instead: their
+ *  own pages and Log out, with the wordmark leading back to the dashboard. Pages
+ *  that belong to a shop or a barber pass neither and show the wordmark alone,
+ *  linking home. */
+export function SiteHeader({ company = false, shop = false }: Props) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -73,6 +92,8 @@ export function SiteHeader({ company }: { company: boolean }) {
     };
   }, [open]);
 
+  const links: { label: string; href?: string }[] | null = company ? NAV_LINKS : shop ? SHOP_LINKS : null;
+
   return (
     <header
       className={`sticky top-0 z-50 border-b border-hairline bg-surface transition-shadow duration-200 ease-standard ${
@@ -82,18 +103,18 @@ export function SiteHeader({ company }: { company: boolean }) {
       <Container>
         <div className="flex min-h-14 items-center justify-between gap-4">
           <Link
-            to="/"
+            to={shop ? "/dashboard" : "/"}
             className="inline-flex min-h-11 items-center rounded-md pe-2 transition-colors duration-120 ease-standard hover:bg-hover-wash"
           >
             <Wordmark />
-            <span className="sr-only">book-me-up home</span>
+            <span className="sr-only">{shop ? "book-me-up dashboard" : "book-me-up home"}</span>
           </Link>
 
-          {company && (
+          {links && (
             <>
               <nav aria-label="Primary" className="hidden md:block">
                 <ul className="flex items-center gap-1">
-                  {NAV_LINKS.map((link) => (
+                  {links.map((link) => (
                     <li key={link.label}>
                       <a
                         href={link.href}
@@ -107,18 +128,26 @@ export function SiteHeader({ company }: { company: boolean }) {
               </nav>
 
               <div className="hidden items-center gap-2 md:flex">
-                <a
-                  href="/login"
-                  className="inline-flex min-h-11 items-center rounded-md px-3 text-body-sm text-primary-text transition-colors duration-120 ease-standard hover:bg-hover-wash"
-                >
-                  Log in
-                </a>
-                <a
-                  href="/waitlist"
-                  className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 text-button text-on-primary transition-colors duration-120 ease-standard hover:bg-primary-hover active:bg-primary-active"
-                >
-                  Join a waitlist
-                </a>
+                {company ? (
+                  <>
+                    <a
+                      href="/login"
+                      className="inline-flex min-h-11 items-center rounded-md px-3 text-body-sm text-primary-text transition-colors duration-120 ease-standard hover:bg-hover-wash"
+                    >
+                      Log in
+                    </a>
+                    <a
+                      href="/waitlist"
+                      className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 text-button text-on-primary transition-colors duration-120 ease-standard hover:bg-primary-hover active:bg-primary-active"
+                    >
+                      Join a waitlist
+                    </a>
+                  </>
+                ) : (
+                  <button type="button" className={LOG_OUT}>
+                    Log out
+                  </button>
+                )}
               </div>
 
               <button
@@ -138,7 +167,7 @@ export function SiteHeader({ company }: { company: boolean }) {
         </div>
       </Container>
 
-      {company && (
+      {links && (
         <>
           {/* Mobile drawer. Stays mounted so it can transition; `inert` keeps it out
               of the tab order and off the accessibility tree while closed. */}
@@ -175,7 +204,7 @@ export function SiteHeader({ company }: { company: boolean }) {
 
             <nav aria-label="Mobile" className="mt-6 flex-1">
               <ul className="flex flex-col gap-1">
-                {NAV_LINKS.map((link) => (
+                {links.map((link) => (
                   <li key={link.label}>
                     <a
                       href={link.href}
@@ -190,10 +219,18 @@ export function SiteHeader({ company }: { company: boolean }) {
             </nav>
 
             <div className="flex flex-col gap-2">
-              <Cta href="/waitlist">Join a waitlist</Cta>
-              <Cta href="/login" variant="secondary">
-                Log in
-              </Cta>
+              {company ? (
+                <>
+                  <Cta href="/waitlist">Join a waitlist</Cta>
+                  <Cta href="/login" variant="secondary">
+                    Log in
+                  </Cta>
+                </>
+              ) : (
+                <button type="button" className={LOG_OUT}>
+                  Log out
+                </button>
+              )}
             </div>
           </div>
         </>
