@@ -5,7 +5,7 @@ import { CompanyFooter } from "~/widgets/companyFooter";
 export function Dashboard({ firstName }: { firstName: string }) {
   return (
     <div className="overflow-x-clip bg-canvas-soft text-ink">
-      <SiteHeader company />
+      <SiteHeader shop />
       <main>
         <section className="py-16 md:py-24 lg:py-32">
           <Container>

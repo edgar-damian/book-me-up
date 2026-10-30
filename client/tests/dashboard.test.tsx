@@ -207,4 +207,11 @@ describe("dashboard page", () => {
 
     expect(await screen.findByText("Hi, Ada. You're logged in.")).toBeInTheDocument();
   });
+
+  it("uses the worker header, whose wordmark stays on the dashboard", async () => {
+    const Stub = createRoutesStub([{ path: "/dashboard", Component: DashboardRoute, loader: () => ME }]);
+    render(<Stub initialEntries={["/dashboard"]} />);
+
+    expect(await screen.findByRole("link", { name: /dashboard/ })).toHaveAttribute("href", "/dashboard");
+  });
 });
