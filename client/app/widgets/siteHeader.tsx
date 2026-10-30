@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
-import { Container, Cta, Glyph, Wordmark } from "~/widgets/kit";
+import { Form, Link, useNavigation } from "react-router";
+import { Container, Cta, Glyph, Spinner, Wordmark } from "~/widgets/kit";
 
 // Root-relative so each link reaches the landing page's section from any page.
 const NAV_LINKS = [
@@ -20,10 +20,27 @@ const SHOP_LINKS: { label: string; href?: string }[] = [
   { label: "Profile" },
 ];
 
-// Log out has no handler yet, so it ends no session.
-const LOG_OUT =
-  "inline-flex min-h-11 items-center justify-center rounded-md border border-border-input bg-surface px-4 " +
-  "text-button text-ink transition-colors duration-120 ease-standard hover:bg-hover-wash active:bg-press-wash";
+/** The worker's Log out. The /logout action ends their session and clears the
+ *  cookie. While it runs, the spinner covers the hidden label, so the button
+ *  keeps its width. */
+function LogOut() {
+  // formAction stays "/logout" through the redirect to /login.
+  const busy = useNavigation().formAction === "/logout";
+  return (
+    <Form method="post" action="/logout">
+      <button
+        type="submit"
+        aria-busy={busy || undefined}
+        className={`inline-grid min-h-11 w-full place-items-center rounded-md border border-border-input bg-surface px-4 text-button text-ink transition-colors duration-120 ease-standard hover:bg-hover-wash active:bg-press-wash ${
+          busy ? "pointer-events-none" : ""
+        }`}
+      >
+        <span className={`col-start-1 row-start-1 ${busy ? "invisible" : ""}`}>Log out</span>
+        {busy && <Spinner className="col-start-1 row-start-1 size-4" label="Logging out…" />}
+      </button>
+    </Form>
+  );
+}
 
 /** One set of links or neither, never both. */
 type Props = { company: boolean; shop?: false } | { company?: false; shop: boolean };
@@ -144,9 +161,7 @@ export function SiteHeader({ company = false, shop = false }: Props) {
                     </a>
                   </>
                 ) : (
-                  <button type="button" className={LOG_OUT}>
-                    Log out
-                  </button>
+                  <LogOut />
                 )}
               </div>
 
@@ -227,9 +242,7 @@ export function SiteHeader({ company = false, shop = false }: Props) {
                   </Cta>
                 </>
               ) : (
-                <button type="button" className={LOG_OUT}>
-                  Log out
-                </button>
+                <LogOut />
               )}
             </div>
           </div>

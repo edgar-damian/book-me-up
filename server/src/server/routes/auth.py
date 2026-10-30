@@ -1,6 +1,6 @@
 """
 Worker authentication. Supabase Auth owns the credentials; these routes exchange
-them for a session, renew it, and check it on requests that act as the user.
+them for a session, renew it, end it, and check it on requests that act as the user.
 """
 
 from typing import Annotated
@@ -19,6 +19,7 @@ from server.supabase.auth import (
     make_new_user,
     refresh,
     sign_in,
+    sign_out,
     verify_token,
 )
 from server.supabase.sb_function import DatabaseUnavailable, NotSignedIn
@@ -141,6 +142,26 @@ def refresh_session(body: RefreshSession):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Log in again",
         )
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={401: {"description": "Missing, invalid, or expired access token"}},
+)
+def logout(caller: Annotated[Caller, Depends(current_user)]):
+    """
+    Ends the session the access token belongs to, so its refresh token stops
+    working. Other devices stay signed in, and the access token works until it
+    expires.
+    """
+    try:
+        sign_out(caller)
     except DatabaseUnavailable:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

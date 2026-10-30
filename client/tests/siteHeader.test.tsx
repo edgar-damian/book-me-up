@@ -1,12 +1,23 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
-import { createRoutesStub } from "react-router";
-import { describe, expect, it } from "vitest";
+import { createRoutesStub, redirect } from "react-router";
+import { describe, expect, it, vi } from "vitest";
 import { SiteHeader } from "~/widgets/siteHeader";
 
 function renderHeader(props: ComponentProps<typeof SiteHeader> = { company: true }) {
   const Stub = createRoutesStub([{ path: "/", Component: () => <SiteHeader {...props} /> }]);
+  render(<Stub initialEntries={["/"]} />);
+  return userEvent.setup();
+}
+
+/** The worker header, with a stand-in /logout action and a /login page to land on. */
+function renderWorkerHeader(logout: (args: { request: Request }) => Promise<unknown>) {
+  const Stub = createRoutesStub([
+    { path: "/", Component: () => <SiteHeader shop /> },
+    { path: "/logout", action: logout },
+    { path: "/login", Component: () => <h1>Log in</h1> },
+  ]);
   render(<Stub initialEntries={["/"]} />);
   return userEvent.setup();
 }
@@ -93,6 +104,28 @@ describe("site header", () => {
 
     expect(items(within(menu()).getByRole("navigation", { name: "Mobile" }))).toEqual(WORKER_LINKS);
     expect(within(menu()).getByRole("button", { name: "Log out" })).toBeInTheDocument();
+  });
+
+  it("logs out with a POST to /logout and lands on the login page", async () => {
+    const logout = vi.fn(async (_: { request: Request }) => redirect("/login"));
+    const user = renderWorkerHeader(logout);
+
+    await user.click(screen.getAllByRole("button", { name: "Log out" })[0]);
+
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(logout.mock.calls[0][0].request.method).toBe("POST");
+  });
+
+  it("shows Logging out… in both buttons while the logout runs", async () => {
+    const user = renderWorkerHeader(() => new Promise(() => {}));
+
+    await user.click(screen.getAllByRole("button", { name: "Log out" })[0]);
+
+    expect(await screen.findAllByRole("status", { name: "Logging out…" })).toHaveLength(2);
+    for (const button of screen.getAllByRole("button", { name: /Logging out…/ })) {
+      expect(button).toHaveAttribute("aria-busy", "true");
+    }
   });
 
   // `npm run typecheck` is what checks this one: the props refuse both at once.

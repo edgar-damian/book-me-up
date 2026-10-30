@@ -1,7 +1,7 @@
 """
-Sign-in and sign-up through Supabase Auth. Each call builds its own client because
-supabase-py switches a client's Authorization header to whoever signs in on it;
-on the shared public_db, every later public read would run as that user.
+Sign-in, sign-up, and sign-out through Supabase Auth. Each call builds its own
+client because supabase-py switches a client's Authorization header to whoever
+signs in on it; on the shared public_db, every later public read would run as that user.
 Auto-refresh is off because the refresh token belongs to the caller, and a
 background refresh here would spend it.
 
@@ -320,6 +320,42 @@ def refresh(body: RefreshSession) -> LoggedIn:
     except ValidationError as exc:
         logger.exception("refresh returned an unusable session")
         raise DatabaseUnavailable("schema mismatch") from exc
+
+
+def sign_out(caller: Caller) -> None:
+    """
+    Ends the Supabase session the caller's access token belongs to, so its refresh
+    token can't be traded again. The user's sessions on other devices are left
+    alone. The access token itself works until it expires: Supabase can't revoke
+    one it has issued.
+
+    Args:
+        - caller (Caller): from verify_token
+
+    Raises:
+        - DatabaseUnavailable: Supabase was unreachable, rate limited, or answered unexpectedly
+    """
+    try:
+        with httpx.Client(timeout=_TIMEOUT) as http:
+            client = create_client(
+                settings.SUPABASE_URL,
+                settings.SUPABASE_PUBLISHABLE_KEY.get_secret_value(),
+                options=ClientOptions(
+                    httpx_client=http, persist_session=False, auto_refresh_token=False
+                ),
+            )
+            # Sent with the caller's own token, so the publishable key is enough.
+            client.auth.admin.sign_out(caller.access_token, scope="local")
+    except AuthApiError as exc:
+        # Already over, which is all a logout asks for.
+        if exc.code in _SESSION_GONE:
+            logger.info("sign out found no session: %s", exc.code)
+            return
+        logger.exception("sign out failed")
+        raise DatabaseUnavailable(str(exc)) from exc
+    except (AuthError, httpx.HTTPError) as exc:
+        logger.exception("sign out failed")
+        raise DatabaseUnavailable(str(exc)) from exc
 
 
 def get_me(caller: Caller) -> Me | None:
