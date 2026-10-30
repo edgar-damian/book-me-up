@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Link } from "react-router";
 import type { MyChair, MyService } from "~/models/dashboard";
 
@@ -15,6 +15,9 @@ const BUTTON =
   "transition-colors duration-120 ease-standard";
 const PRIMARY = `${BUTTON} bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active`;
 const SECONDARY = `${BUTTON} border border-border-input bg-surface text-ink hover:bg-hover-wash active:bg-press-wash`;
+
+// The origin never changes while the page is open, so there is nothing to subscribe to.
+const noSubscription = () => () => {};
 
 export function GoLive({
   live,
@@ -35,8 +38,13 @@ export function GoLive({
 }) {
   const path = `/view-services/${slug}`;
   // The browser knows the address clients use; behind a proxy the server may not.
-  const [origin, setOrigin] = useState("");
-  useEffect(() => setOrigin(window.location.origin), []);
+  // The server and hydration render without it, and a client render has it from
+  // the first render rather than after an effect.
+  const origin = useSyncExternalStore(
+    noSubscription,
+    () => window.location.origin,
+    () => "",
+  );
 
   if (!live) {
     return (

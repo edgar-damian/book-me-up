@@ -1,11 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useLayoutEffect } from "react";
 import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "~/models/auth";
 import type { MyChair, MyService, MyWorkerProfile, SaveWorkerProfile } from "~/models/dashboard";
 import OnboardingRoute, { action, loader } from "~/routes/onboarding";
 import { commitSession, getSession } from "~/sessions.server";
+import { GoLive } from "~/widgets/Dashboard/goLive";
 import type { StepKey } from "~/widgets/Dashboard/onboarding";
 import { expectHeadingOutline } from "./helpers";
 
@@ -827,5 +829,32 @@ describe("onboarding page", () => {
     );
     expect(screen.getByRole("link", { name: "Go to dashboard" })).toHaveAttribute("href", "/dashboard");
     expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+  });
+
+  // A layout effect runs in the first commit, before any effect, so this reads the
+  // link as the first render left it. An origin filled in by an effect fails here
+  // every time, rather than only on a slow machine.
+  it("has the whole booking link on the first render", () => {
+    let first: string | null = null;
+    function FirstCommit() {
+      useLayoutEffect(() => {
+        first = screen.getByText(/\/view-services\/ada-cuts$/).textContent;
+      }, []);
+      return null;
+    }
+    const Stub = createRoutesStub([
+      {
+        path: "/onboarding",
+        Component: () => (
+          <>
+            <GoLive live chairs={[JOINED]} chair={JOINED} services={[SKIN_FADE]} slug="ada-cuts" />
+            <FirstCommit />
+          </>
+        ),
+      },
+    ]);
+    render(<Stub initialEntries={["/onboarding"]} />);
+
+    expect(first).toBe(`${window.location.origin}/view-services/ada-cuts`);
   });
 });

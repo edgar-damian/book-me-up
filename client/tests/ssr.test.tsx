@@ -77,7 +77,7 @@ describe("server rendering", () => {
     expect(html).toContain("<h1");
   });
 
-  // The booking link's origin comes from the browser, so it must only be read after render.
+  // The booking link's origin comes from the browser, so the server renders the link without it.
   it("renders the done screen without a browser", () => {
     const chair = {
       id: "0000000c-0000-4000-8000-000000000001",
