@@ -15,6 +15,7 @@ const ME: Me = {
   email: "ana@example.com",
   has_worker_profile: false,
   has_shop: false,
+  is_live: true,
 };
 
 beforeEach(() => {

@@ -94,6 +94,7 @@ class _MeRow(BaseModel):
             id: str
 
         id: str
+        is_active: bool
         worker_establishment: list[Chair]
 
     class Ownership(BaseModel):
@@ -360,4 +361,5 @@ def get_me(caller: Caller) -> Me | None:
         email=row.email,
         has_worker_profile=profile is not None,
         has_shop=bool(row.establishment_owner) or bool(profile and profile.worker_establishment),
+        is_live=bool(profile and profile.is_active),
     )

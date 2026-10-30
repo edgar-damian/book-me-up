@@ -56,7 +56,7 @@ export async function action({ request }: Route.ActionArgs) {
   session.set("access_token", tokens.access_token);
   session.set("refresh_token", tokens.refresh_token);
   session.set("expires_at", tokens.expires_at);
-  return redirect("/dashboard", { headers: { "Set-Cookie": await commitSession(session) } });
+  return redirect("/onboarding", { headers: { "Set-Cookie": await commitSession(session) } });
 }
 
 export default function SignUpRoute({ actionData }: Route.ComponentProps) {
