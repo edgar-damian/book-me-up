@@ -11,8 +11,9 @@ const ME: Me = {
   first_name: "Ada",
   last_name: "Lovelace",
   email: "ada@example.com",
-  has_worker_profile: false,
-  has_shop: false,
+  has_worker_profile: true,
+  has_shop: true,
+  is_live: true,
 };
 const RENEWED = { access_token: "access-2", refresh_token: "refresh-2", expires_at: NOW + 3600 };
 
@@ -125,6 +126,77 @@ describe("dashboard loader", () => {
     const response = await thrown(load(await cookie(3600)));
 
     expect(response.status).toBe(503);
+  });
+
+  it("sends a worker who hasn't finished setup to /onboarding, keeping a renewed cookie", async () => {
+    stubApi({
+      "/auth/refresh": { status: 200, body: RENEWED },
+      "/auth/me": { status: 200, body: { ...ME, is_live: false } },
+      "/dashboard/profile": { status: 404 },
+      "/dashboard/chairs": { status: 200, body: [] },
+      "/dashboard/services": { status: 200, body: [] },
+    });
+
+    const response = await thrown(load(await cookie(30)));
+
+    expect(response.headers.get("Location")).toBe("/onboarding");
+    const setCookie = response.headers.get("Set-Cookie") ?? "";
+    expect((await getSession(setCookie.split(";")[0])).data).toEqual(RENEWED);
+  });
+
+  it("lets in a worker waiting on their shop", async () => {
+    const waiting = { ...ME, is_live: false };
+    stubApi({
+      "/auth/me": { status: 200, body: waiting },
+      "/dashboard/profile": {
+        status: 200,
+        body: {
+          slug: "ada-lovelace",
+          first_name: "Ada",
+          last_name: "Lovelace",
+          bio: "",
+          public_email: null,
+          public_phone: null,
+          is_active: false,
+        },
+      },
+      "/dashboard/chairs": {
+        status: 200,
+        body: [
+          {
+            id: "0000000c-0000-4000-8000-000000000001",
+            shop: { slug: "krusty-fadez", name: "Krusty Fadez" },
+            is_active: false,
+            schedule_days: [
+              {
+                day_of_week: 1,
+                start_minute: 540,
+                end_minute: 1020,
+                break_start_minute: null,
+                break_end_minute: null,
+              },
+            ],
+          },
+        ],
+      },
+      "/dashboard/services": {
+        status: 200,
+        body: [
+          {
+            id: "0000000d-0000-4000-8000-000000000001",
+            title: "Skin fade",
+            description: "",
+            price_cents: 3500,
+            duration_min: 45,
+            buffer_after_min: 0,
+          },
+        ],
+      },
+    });
+
+    const result = await load(await cookie(3600));
+
+    expect(result.data).toEqual(waiting);
   });
 });
 

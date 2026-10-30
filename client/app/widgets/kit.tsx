@@ -285,6 +285,41 @@ export function toE164(raw: string) {
   return /^[1-9]\d{1,14}$/.test(full) ? `+${full}` : null;
 }
 
+/** Cents from a typed price like "35", "35.5" or "$1,200.00". null when it isn't one. */
+export function toCents(raw: string) {
+  const plain = raw.trim().replace(/^\$\s*/, "").replace(/,/g, "");
+  return /^\d+(\.\d{1,2})?$/.test(plain) ? Math.round(Number(plain) * 100) : null;
+}
+
+/**
+ * Minutes after midnight from a time input's "HH:MM", or null when it is empty
+ * or malformed. An end of 00:00 is midnight at the close of the day, 1440.
+ */
+export function toMinutes(clock: string, isEnd = false) {
+  const match = /^(\d{2}):(\d{2})(:\d{2})?$/.exec(clock.trim());
+  if (!match) return null;
+  const minutes = Number(match[1]) * 60 + Number(match[2]);
+  if (minutes >= 1440) return null;
+  return isEnd && minutes === 0 ? 1440 : minutes;
+}
+
+/** A time input's "HH:MM" from minutes after midnight. 1440 shows as 00:00. */
+export function toClock(minutes: number) {
+  const m = minutes % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** A page link from what people type: lowercase letters and digits, words joined by single dashes. */
+export function toSlug(raw: string) {
+  return raw
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .slice(0, 60)
+    .replace(/^-+|-+$/g, "");
+}
+
 export function Input({
   name,
   label,
@@ -467,6 +502,13 @@ export const IconStorefront = (p: GlyphProps) => (
     <path d="M3.5 9.5h17V20a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1Z" />
     <path d="M3 9.5 4.6 4a1 1 0 0 1 1-.7h12.8a1 1 0 0 1 1 .7L21 9.5" />
     <path d="M9.5 21v-6h5v6" />
+  </Glyph>
+);
+
+export const IconUser = (p: GlyphProps) => (
+  <Glyph {...p}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" />
   </Glyph>
 );
 

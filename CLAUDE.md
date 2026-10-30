@@ -70,13 +70,17 @@ CTAs lead to `/waitlist`.
 
 ## Server architecture
 
-Two router pairs, same shape. Each route module owns only HTTP concerns; every query and
-every rule lives in the matching `supabase/` module.
+Router pairs, all the same shape. Each route module owns only HTTP concerns; every query
+and every rule lives in the matching `supabase/` module.
 
 | Feature | Route | Query layer | Models |
 | --- | --- | --- | --- |
 | Landing pages | `routes/apis.py` | `supabase/sb_function.py` | `models/public_models.py` |
 | Booking flow | `routes/booking.py` (`/booking` prefix) | `supabase/booking.py` | `models/booking.py` |
+| Worker dashboard | `routes/dashboard.py` (`/dashboard` prefix) | `supabase/dashboard.py` | `models/dashboard.py` |
+
+Every dashboard query runs as the caller through `user_db`, so RLS is the boundary there
+too; none of them uses `admin_db`.
 
 Request path: route → query module → Supabase → `to_public()` / `model_validate()` →
 Pydantic response model.
@@ -151,6 +155,15 @@ is constructed**:
 - `BlankFirstName` → **422**. Booking flow only; checked before any query runs.
 - `InvalidSignup` → **422**. Waitlist only; a blank name or unusable email, checked before
   any query runs.
+- `SlugTaken` → **409**. Dashboard only; another worker's page already uses the slug.
+  `_run_profile_write()` pulls it out of SQLSTATE `23505` by the constraint name.
+- `InvalidProfile` → **422**. Dashboard only; a blank name or unusable email, checked
+  before any query runs.
+- `ProfileMissing` → **409**. Dashboard only; joining a shop or saving services before the
+  worker has a profile.
+- `InvalidService` → **422**. Dashboard only; a service name with nothing visible left,
+  checked before any query runs. Removing a service turns it off (`is_active = false`)
+  rather than deleting it, so its appointments keep their history.
 
 `_run(query, what)` in `sb_function.py` is the house idiom for reads: it catches `APIError`
 and `httpx.HTTPError`, logs, and re-raises as `DatabaseUnavailable`. `_run_write()` in
@@ -283,7 +296,7 @@ describe this project.
 codegen and nothing validates the JSON at runtime. Changing a server public model means
 editing the matching `.ts` in the same commit or the client silently reads `undefined`.
 `bookingFlow.ts` mirrors `models/booking.py`; `workerPage.ts` and `establishmentPage.ts`
-mirror `public_models.py`.
+mirror `public_models.py`; `dashboard.ts` mirrors `models/dashboard.py`.
 
 `app/widgets/21dev/` is dropped-in third-party markup, not written to the design system.
 Only `header.tsx` is wired up (imported as `Velaris` by `pages/WorkerPage.tsx`); the
@@ -340,7 +353,9 @@ Authorization checks should query those rows rather than caching a role string.
 ### The "chair" is the unit of work
 
 `WorkerEstablishment` models one barber's chair at one shop, and is what most scheduling
-hangs off. Note the deliberate asymmetry in what is scoped to the chair vs. the person:
+hangs off. An inactive row with no `endedAt` is a request to join, waiting on that shop's
+owner; an `endedAt` marks a stint that is over. Note the deliberate asymmetry in what is
+scoped to the chair vs. the person:
 
 | Scoped to the chair (`workerEstablishmentId`) | Scoped to the person (`workerId`) |
 | --- | --- |
@@ -350,6 +365,16 @@ hangs off. Note the deliberate asymmetry in what is scoped to the chair vs. the 
 
 So: a barber sets different Tuesday hours at each shop, but taking Tuesday off removes them
 from both, and their service list and booking policy are identical everywhere they work.
+
+### Going live is the database's call
+
+A new `WorkerProfile` starts hidden, and only `go_live_if_ready()` (GOING LIVE at the end of
+`create_tables.sql`) turns `isActive` on. Three triggers call it: a chair turned active, a
+service offered, and hours saved. It goes live once the worker has an approved chair at a
+live shop, hours at that chair, and at least one active service, whichever lands last. So a
+shop approving a finished worker publishes their page with no further step. Workers can't
+update `isActive` themselves (it's left out of the column grant), and nothing turns a page
+back off.
 
 ### Availability is computed, never stored
 

@@ -11,6 +11,7 @@ from server.core.config import settings
 from server.routes.apis import router
 from server.routes.auth import router as auth_router
 from server.routes.booking import router as booking_router
+from server.routes.dashboard import router as dashboard_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,3 +37,4 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(booking_router)
 app.include_router(auth_router)
+app.include_router(dashboard_router)

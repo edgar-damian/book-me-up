@@ -44,7 +44,8 @@ class RefreshSession(BaseModel):
 class Me(BaseModel):
     """
     The signed-in user's own account, for the dashboard. has_shop is true for an
-    owner of any shop or a worker with an active chair.
+    owner of any shop or a worker with an active chair. is_live is true once their
+    worker page is public.
     """
 
     first_name: str
@@ -52,3 +53,4 @@ class Me(BaseModel):
     email: str | None
     has_worker_profile: bool
     has_shop: bool
+    is_live: bool

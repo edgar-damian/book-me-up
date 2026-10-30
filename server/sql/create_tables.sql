@@ -593,8 +593,8 @@ create policy establishment_owner_read on public.establishment_owner
 create policy worker_profile_self_write on public.worker_profile
   for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- New profiles start hidden. The worker turns is_active on through
--- worker_profile_self_write. Self-read shows the hidden row, which an insert
+-- New profiles start hidden, and only go_live_if_ready() turns is_active on
+-- (see GOING LIVE at the end). Self-read shows the hidden row, which an insert
 -- also needs to return it.
 create policy worker_profile_self_read on public.worker_profile
   for select using (user_id = auth.uid());
@@ -847,5 +847,98 @@ create unique index if not exists waitlist_signup_email_uq
 
 alter table public.waitlist_signup enable row level security;
 revoke all on public.waitlist_signup from anon, authenticated;
+
+commit;
+
+-- ============================================================================
+-- GOING LIVE
+--
+-- A worker's page goes public on its own once they are ready: an approved
+-- chair at a live shop, with hours at that chair, and at least one active
+-- service. Whichever of those lands last turns worker_profile.is_active on,
+-- so nobody has to press anything after the shop approves them. A page is
+-- never turned back off here.
+--
+-- Workers can't set is_active themselves: update on that column is revoked,
+-- and the function that sets it runs as its owner.
+--
+-- Run after create_tables.sql. Safe to re-run.
+-- ============================================================================
+
+begin;
+
+create or replace function public.go_live_if_ready(worker uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.worker_profile
+     set is_active = true
+   where id = worker
+     and not is_active
+     and exists (select 1 from public.service where worker_id = worker and is_active)
+     and exists (
+       select 1
+         from public.worker_establishment we
+         join public.establishment e on e.id = we.establishment_id
+        where we.worker_id = worker
+          and we.is_active
+          and e.is_active
+          and exists (
+            select 1 from public.worker_schedule_day d where d.worker_establishment_id = we.id
+          )
+     );
+end;
+$$;
+
+-- Fired by the rows that carry worker_id: a chair turned on, a service offered.
+create or replace function public.go_live_on_change()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform public.go_live_if_ready(new.worker_id);
+  return null;
+end;
+$$;
+
+-- Hours hang off the chair, so the worker is looked up through it.
+create or replace function public.go_live_on_hours()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform public.go_live_if_ready(
+    (select worker_id from public.worker_establishment where id = new.worker_establishment_id)
+  );
+  return null;
+end;
+$$;
+
+drop trigger if exists go_live_on_chair on public.worker_establishment;
+create trigger go_live_on_chair
+  after insert or update of is_active on public.worker_establishment
+  for each row when (new.is_active)
+  execute function public.go_live_on_change();
+
+drop trigger if exists go_live_on_service on public.service;
+create trigger go_live_on_service
+  after insert or update on public.service
+  for each row when (new.is_active)
+  execute function public.go_live_on_change();
+
+-- Update as well as insert: saving hours is an upsert, and the rows that
+-- already exist fire update triggers.
+drop trigger if exists go_live_on_hours on public.worker_schedule_day;
+create trigger go_live_on_hours
+  after insert or update on public.worker_schedule_day
+  for each row
+  execute function public.go_live_on_hours();
+
+-- Only the triggers call it, never the API.
+revoke execute on function public.go_live_if_ready(uuid) from public, anon, authenticated;
+
+-- A policy can't tell which columns an update touches, so is_active is closed
+-- by column instead. Workers can still edit everything else on their profile.
+revoke update on public.worker_profile from anon, authenticated;
+grant update (
+  slug, first_name, last_name, bio, public_email, public_phone, image,
+  hold_expiry_hours, auto_accept, min_lead_time_min, max_advance_days,
+  cancellation_cutoff_min
+) on public.worker_profile to authenticated;
 
 commit;

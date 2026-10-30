@@ -2,19 +2,27 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Me } from "~/models/auth";
-import DashboardRoute from "~/routes/dashboard";
+import OnboardingRoute from "~/routes/onboarding";
 import SignUpRoute, { action as signupAction } from "~/routes/signup";
 import { getSession } from "~/sessions.server";
 
 const API_URL = "http://api.test";
 const TOKENS = { access_token: "access", refresh_token: "refresh", expires_at: 1_800_000_000 };
-const ME: Me = {
-  first_name: "Ada",
-  last_name: "Lovelace",
-  email: "ada@example.com",
-  has_worker_profile: false,
-  has_shop: false,
+/** What the onboarding loader gives a brand-new account. */
+const FIRST_STEP = {
+  step: "profile",
+  profile: {
+    slug: "ada-lovelace",
+    first_name: "Ada",
+    last_name: "Lovelace",
+    bio: "",
+    public_email: null,
+    public_phone: null,
+  },
+  chairs: [],
+  chair: null,
+  services: [],
+  live: false,
 };
 
 /** What a person types, by label. */
@@ -143,11 +151,11 @@ describe("sign-up page", () => {
 });
 
 describe("sign-up action", () => {
-  /** The real sign-up route and action. The stub keeps no cookies, so the dashboard's loader is a stand-in. */
+  /** The real sign-up route and action. The stub keeps no cookies, so the onboarding loader is a stand-in. */
   function renderSignup() {
     const Stub = createRoutesStub([
       { path: "/signup", Component: SignUpRoute, action: signupAction },
-      { path: "/dashboard", Component: DashboardRoute, loader: () => ME },
+      { path: "/onboarding", Component: OnboardingRoute, loader: () => FIRST_STEP },
     ]);
     render(<Stub initialEntries={["/signup"]} />);
     return userEvent.setup();
@@ -158,11 +166,11 @@ describe("sign-up action", () => {
     await user.click(submitButton());
   }
 
-  it("sends five fields to POST /auth/signup as JSON and opens the dashboard", async () => {
+  it("sends five fields to POST /auth/signup as JSON and opens onboarding", async () => {
     const fetchMock = stubApi(201, TOKENS);
     await signUp(renderSignup());
 
-    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Set up your page" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${API_URL}/auth/signup`);
@@ -178,7 +186,7 @@ describe("sign-up action", () => {
 
     expect(response).toBeInstanceOf(Response);
     const { headers } = response as Response;
-    expect(headers.get("Location")).toBe("/dashboard");
+    expect(headers.get("Location")).toBe("/onboarding");
     const cookie = headers.get("Set-Cookie") ?? "";
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");

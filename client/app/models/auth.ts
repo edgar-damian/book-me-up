@@ -37,7 +37,8 @@ export type RefreshSession = {
 
 /**
  * The signed-in user's own account. has_shop is true for an owner of any shop
- * or a worker with an active chair.
+ * or a worker with an active chair. is_live is true once their worker page is
+ * public.
  */
 export type Me = {
   first_name: string;
@@ -45,4 +46,5 @@ export type Me = {
   email: string | null;
   has_worker_profile: boolean;
   has_shop: boolean;
+  is_live: boolean;
 };

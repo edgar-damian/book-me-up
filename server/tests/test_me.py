@@ -82,6 +82,7 @@ def test_valid_token_returns_the_account(client, app_user):
         "email": "ada@example.com",
         "has_worker_profile": False,
         "has_shop": False,
+        "is_live": False,
     }
 
 
@@ -99,9 +100,13 @@ def test_query_runs_as_the_caller_and_reads_only_their_row(client, create_client
 @pytest.mark.parametrize(
     ("profile", "owned", "flags"),
     [
-        ({"id": "p1", "worker_establishment": []}, [], (True, False)),
-        ({"id": "p1", "worker_establishment": [{"id": "c1"}]}, [], (True, True)),
-        (None, [{"id": "o1"}], (False, True)),
+        ({"id": "p1", "is_active": False, "worker_establishment": []}, [], (True, False, False)),
+        (
+            {"id": "p1", "is_active": True, "worker_establishment": [{"id": "c1"}]},
+            [],
+            (True, True, True),
+        ),
+        (None, [{"id": "o1"}], (False, True, False)),
     ],
 )
 def test_flags_follow_profile_chairs_and_ownership(client, app_user, profile, owned, flags):
@@ -110,7 +115,7 @@ def test_flags_follow_profile_chairs_and_ownership(client, app_user, profile, ow
 
     body = client.get(URL, headers=bearer(make_token())).json()
 
-    assert (body["has_worker_profile"], body["has_shop"]) == flags
+    assert (body["has_worker_profile"], body["has_shop"], body["is_live"]) == flags
 
 
 def test_missing_header_is_401_and_asks_for_a_bearer_token(client, app_user):
