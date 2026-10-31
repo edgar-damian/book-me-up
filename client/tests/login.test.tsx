@@ -41,7 +41,7 @@ function stubApi(status: number, body?: unknown) {
 function renderLogin() {
   const Stub = createRoutesStub([
     { path: "/login", Component: LogInRoute, action: loginAction },
-    { path: "/dashboard", Component: DashboardRoute, loader: () => ME },
+    { path: "/dashboard", Component: DashboardRoute, loader: () => ({ me: ME, editing: null }) },
   ]);
   render(<Stub initialEntries={["/login"]} />);
   return userEvent.setup();

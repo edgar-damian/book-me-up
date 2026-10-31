@@ -649,6 +649,45 @@ html:has(#landing-root) {
   animation: step-enter var(--duration-base) var(--ease-entrance);
 }
 
+/* ===========================================================================
+   Edit dialog — the dashboard's sheet slides up on a phone; from md the
+   centered card fades in and rises 8px. The scrim is the dialog's own
+   background rather than ::backdrop, which the reduced-motion block's
+   selectors don't reach.
+   =========================================================================== */
+@keyframes sheet-enter {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes scrim-enter {
+  from {
+    background-color: transparent;
+  }
+}
+
+.edit-dialog {
+  animation: scrim-enter var(--duration-base) var(--ease-standard);
+}
+
+.edit-enter {
+  animation: sheet-enter var(--duration-slow) var(--ease-standard);
+}
+
+@media (width >= 48rem) {
+  .edit-enter {
+    animation: modal-enter var(--duration-base) var(--ease-entrance);
+  }
+}
+
 /* Alpha-only edge fade. A mask needs no colour, so it survives a theme flip
    that a gradient-to-background overlay would not. The fade is narrow on a
    phone on purpose — 4rem a side eats a third of a 375px screen. */
