@@ -2,15 +2,24 @@ import { data, redirect } from "react-router";
 import type { Route } from "./+types/dashboard";
 import { Dashboard } from "../pages/Dashboard";
 import type { Me } from "~/models/auth";
-import type { MyChair, MyWeek } from "~/models/dashboard";
+import type { MyChair, MyTimeOff, MyWeek } from "~/models/dashboard";
 import { authorize, toLogin } from "~/auth.server";
-import { answerRequest, apiGet, loadSetup, saveProfile, saveSchedule, saveServices } from "~/dashboard.server";
+import {
+  answerRequest,
+  apiGet,
+  loadSetup,
+  saveProfile,
+  saveSchedule,
+  saveServices,
+  saveTimeOff,
+} from "~/dashboard.server";
 import { ANSWER_FORM } from "~/widgets/Dashboard/appointments";
 import { STEPS } from "~/widgets/Dashboard/onboarding";
 import type { Editing } from "~/widgets/Dashboard/editDialog";
 import { PROFILE_FORM } from "~/widgets/Dashboard/workerProfile";
 import { HOURS_FORM } from "~/widgets/Dashboard/schedule";
 import { SERVICES_FORM } from "~/widgets/Dashboard/services";
+import { TIME_OFF_FORM } from "~/widgets/Dashboard/timeOff";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Dashboard" }];
@@ -18,19 +27,25 @@ export function meta({}: Route.MetaArgs) {
 
 /**
  * The part of the setup ?edit= opens, or null when it names none or that part
- * has nothing to edit. Hours open at the shop ?chair= names, else the one the
- * worker has joined, else their waiting request.
+ * has nothing to edit. Hours and time off open at the shop ?chair= names, else
+ * the one the worker has joined, else their waiting request. Time off blocks
+ * every shop; that one only puts its days on a calendar.
  */
-function editingFor(
+async function editingFor(
+  request: Request,
+  token: string,
   edit: string | null,
   chairId: string | null,
   { profile, chairs, services }: Awaited<ReturnType<typeof loadSetup>>,
-): Editing | null {
+): Promise<Editing | null> {
   if (edit === "profile") return profile ? { edit, profile } : null;
   if (edit === "services") return { edit, services: services ?? [] };
-  if (edit !== "schedule" || !chairs) return null;
+  if ((edit !== "schedule" && edit !== "time-off") || !chairs) return null;
   const chair = chairs.find((c) => c.id === chairId) ?? chairs.find((c) => c.is_active) ?? chairs[0];
-  return chair ? { edit, chairs, chair } : null;
+  if (!chair) return null;
+  if (edit === "schedule") return { edit, chairs, chair };
+  const timeOff = await apiGet<MyTimeOff>(request, token, `/dashboard/time-off?chair=${encodeURIComponent(chair.id)}`);
+  return timeOff ? { edit, chair, timeOff } : null;
 }
 
 // authorize has already renewed a token that was about to expire, so a 401 here
@@ -54,7 +69,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (!me.is_live && setup && setup.reached < STEPS.length - 1) {
     throw redirect("/onboarding", { headers });
   }
-  const editing = setup && editingFor(edit, params.get("chair"), setup);
+  const editing = setup && (await editingFor(request, token, edit, params.get("chair"), setup));
 
   // The week is at the shop ?chair= names, else the first one the worker has joined.
   const chairs = setup ? (setup.chairs ?? []) : ((await apiGet<MyChair[]>(request, token, "/dashboard/chairs")) ?? []);
@@ -81,7 +96,8 @@ function saverFor(intent: FormDataEntryValue | null) {
 }
 
 // Every response passes setCookie on: authorize may have renewed the session,
-// and the refresh token in the old cookie is already spent.
+// and the refresh token in the old cookie is already spent. Every answer with data
+// carries both keys, or TypeScript folds the one with conflicts into the rest.
 export async function action({ request }: Route.ActionArgs) {
   const { token, setCookie } = await authorize(request);
   const headers = setCookie ? { "Set-Cookie": setCookie } : undefined;
@@ -91,18 +107,31 @@ export async function action({ request }: Route.ActionArgs) {
   // without an error status, so the week still reloads and shows what became of the booking.
   if (fd.get("intent") === ANSWER_FORM) {
     const refused = await answerRequest(request, token, fd);
-    return data({ error: refused?.error ?? null }, { headers });
+    return data({ error: refused?.error ?? null, conflicts: null }, { headers });
+  }
+
+  // A refusal leaves the dialog open, since the form posted to its own ?edit= URL.
+  // That URL also holds the shop the dashboard was showing, which the redirect keeps.
+  const chair = new URL(request.url).searchParams.get("chair");
+  const back = chair ? `/dashboard?chair=${encodeURIComponent(chair)}` : "/dashboard";
+
+  // Time off is saved even over bookings. When it falls on some, the dialog stays
+  // open to list them, and the loaders still reload behind it.
+  if (fd.get("intent") === TIME_OFF_FORM) {
+    const saved = await saveTimeOff(request, token, fd);
+    if ("error" in saved) {
+      return data({ error: saved.error, conflicts: null }, { status: saved.status, headers });
+    }
+    if (saved.conflicts.length) return data({ error: null, conflicts: saved.conflicts }, { headers });
+    return redirect(back, { headers });
   }
 
   const save = saverFor(fd.get("intent"));
   if (!save) throw new Response("Unknown form", { status: 400 });
 
-  // A refusal leaves the dialog open, since the form posted to its own ?edit= URL.
-  // That URL also holds the shop the dashboard was showing, which the redirect keeps.
   const refused = await save(request, token, fd);
-  if (refused) return data({ error: refused.error }, { status: refused.status, headers });
-  const chair = new URL(request.url).searchParams.get("chair");
-  return redirect(chair ? `/dashboard?chair=${encodeURIComponent(chair)}` : "/dashboard", { headers });
+  if (refused) return data({ error: refused.error, conflicts: null }, { status: refused.status, headers });
+  return redirect(back, { headers });
 }
 
 export default function DashboardRoute({ loaderData, actionData }: Route.ComponentProps) {
@@ -113,6 +142,7 @@ export default function DashboardRoute({ loaderData, actionData }: Route.Compone
       week={loaderData.week}
       editing={loaderData.editing}
       error={actionData?.error ?? null}
+      conflicts={actionData?.conflicts ?? null}
     />
   );
 }

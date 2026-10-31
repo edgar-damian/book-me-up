@@ -125,6 +125,7 @@ describe("server rendering", () => {
             week={null}
             editing={{ edit: "schedule", chairs: [chair], chair }}
             error={null}
+            conflicts={null}
           />
         ),
       },
@@ -160,7 +161,9 @@ describe("server rendering", () => {
     const Stub = createRoutesStub([
       {
         path: "/dashboard",
-        Component: () => <Dashboard chairs={[chair]} chair={chair} week={week} editing={null} error={null} />,
+        Component: () => (
+          <Dashboard chairs={[chair]} chair={chair} week={week} editing={null} error={null} conflicts={null} />
+        ),
       },
     ]);
     const html = renderToString(<Stub initialEntries={["/dashboard"]} />);
@@ -168,5 +171,71 @@ describe("server rendering", () => {
     expect(html).toContain("Saturday, October 31");
     expect(html).toMatch(/>9:00\sAM</);
     expect(html).toContain("Pearl Krabs");
+  });
+
+  const timeOff = {
+    timezone: "Pacific/Kwajalein",
+    today: "2026-10-31",
+    stretches: [
+      { id: "00000009-0000-4000-8000-000000000001", first_day: "2026-11-02", last_day: "2026-11-03", bookings: 1 },
+    ],
+    conflicts: [
+      {
+        id: "00000007-0000-4000-8000-000000000001",
+        // 9:00 on Monday morning in Kwajalein, still Sunday in UTC.
+        starts_at: "2026-11-01T21:00:00Z",
+        duration_min: 45,
+        client_name: "Pearl Krabs",
+        service_title: "The Bubble Fade",
+        status: "PENDING" as const,
+        shop: { slug: "krusty-fadez", name: "Krusty Fadez", timezone: "Pacific/Kwajalein" },
+      },
+    ],
+  };
+
+  it("renders the dashboard with time off open without a browser", () => {
+    const Stub = createRoutesStub([
+      {
+        path: "/dashboard",
+        Component: () => (
+          <Dashboard
+            chairs={[chair]}
+            chair={chair}
+            week={null}
+            editing={{ edit: "time-off", chair, timeOff }}
+            error={null}
+            conflicts={null}
+          />
+        ),
+      },
+    ]);
+    const html = renderToString(<Stub initialEntries={["/dashboard?edit=time-off"]} />);
+
+    expect(html).toContain('form="worker-time-off"');
+    expect(html).toContain("Mon, Nov 2 – Tue, Nov 3");
+  });
+
+  it("renders the bookings saved time off falls on, on the shop's clock, without a browser", () => {
+    const Stub = createRoutesStub([
+      {
+        path: "/dashboard",
+        Component: () => (
+          <Dashboard
+            chairs={[chair]}
+            chair={chair}
+            week={null}
+            editing={{ edit: "time-off", chair, timeOff }}
+            error={null}
+            conflicts={timeOff.conflicts}
+          />
+        ),
+      },
+    ]);
+    const html = renderToString(<Stub initialEntries={["/dashboard?edit=time-off"]} />);
+
+    expect(html).toContain("Mon, Nov 2");
+    expect(html).toMatch(/9:00\sAM/);
+    expect(html).toContain(">Done<");
+    expect(html).not.toContain('form="worker-time-off"');
   });
 });

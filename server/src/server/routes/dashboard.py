@@ -14,10 +14,12 @@ from server.models.dashboard import (
     MyAppointment,
     MyChair,
     MyService,
+    MyTimeOff,
     MyWeek,
     MyWorkerProfile,
     SaveSchedule,
     SaveServices,
+    SaveTimeOff,
     SaveWorkerProfile,
     ScheduleDay,
 )
@@ -33,11 +35,13 @@ from server.supabase.dashboard import (
     get_chairs,
     get_profile,
     get_services,
+    get_time_off,
     get_week,
     request_chair,
     save_profile,
     save_schedule,
     save_services,
+    save_time_off,
 )
 from server.supabase.sb_function import DatabaseUnavailable, NotSignedIn
 
@@ -298,3 +302,63 @@ def write_services(body: SaveServices, caller: Annotated[Caller, Depends(current
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Service temporarily unavailable",
         )
+
+
+@router.get(
+    "/time-off",
+    response_model=MyTimeOff,
+    responses={
+        401: {"description": "Missing, invalid, or expired access token"},
+        404: {"description": "Not one of the caller's current chairs"},
+    },
+)
+def read_time_off(chair: UUID, caller: Annotated[Caller, Depends(current_user)]):
+    """
+    The caller's time off still to come, with the days on the calendar of the shop
+    at one of their chairs, and the bookings it overlaps at every shop.
+    """
+    try:
+        time_off = get_time_off(caller, chair)
+    except NotSignedIn:
+        raise _not_signed_in()
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+    if time_off is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such chair")
+    return time_off
+
+
+@router.put(
+    "/time-off",
+    response_model=MyTimeOff,
+    responses={
+        401: {"description": "Missing, invalid, or expired access token"},
+        404: {"description": "Not one of the caller's current chairs"},
+        422: {"description": "A stretch that ends before it starts, or a repeated stretch"},
+    },
+)
+def write_time_off(
+    chair: UUID, body: SaveTimeOff, caller: Annotated[Caller, Depends(current_user)]
+):
+    """
+    Makes the posted stretches the caller's time off still to come, with the days
+    on the calendar of the shop at one of their chairs. It is saved even over
+    bookings, which come back with it.
+    """
+    try:
+        time_off = save_time_off(caller, chair, body.stretches)
+    except NotSignedIn:
+        raise _not_signed_in()
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+    if time_off is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such chair")
+    return time_off

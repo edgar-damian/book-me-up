@@ -139,3 +139,62 @@ export type MyWeek = {
 export type AnswerRequest = {
   status: "ACCEPTED" | "REJECTED";
 };
+
+/**
+ * One stretch of the time off form: whole days, both ends included, as
+ * YYYY-MM-DD on the shop's calendar. id is null for a stretch not saved yet.
+ */
+export type SaveStretch = {
+  id: string | null;
+  first_day: string;
+  last_day: string;
+};
+
+/**
+ * What the time off form sends to PUT /dashboard/time-off?chair=: every
+ * stretch still to come. A saved one left out is removed.
+ */
+export type SaveTimeOff = {
+  stretches: SaveStretch[];
+};
+
+/**
+ * A PENDING or ACCEPTED booking that falls in the worker's time off, at any of
+ * their shops. shop is null once the worker can no longer see it.
+ */
+export type TimeOffConflict = {
+  id: string;
+  starts_at: string;
+  duration_min: number;
+  client_name: string;
+  service_title: string;
+  status: AppointmentStatus;
+  shop: {
+    slug: string;
+    name: string;
+    timezone: string;
+  } | null;
+};
+
+/**
+ * One stretch of the worker's time off, as whole days on the shop's calendar,
+ * both ends included. bookings counts the conflicts that fall in it.
+ */
+export type MyStretch = {
+  id: string;
+  first_day: string;
+  last_day: string;
+  bookings: number;
+};
+
+/**
+ * What GET and PUT /dashboard/time-off?chair= return: the worker's time off
+ * still to come, soonest first, on that shop's calendar, with every booking it
+ * overlaps. today is the shop's.
+ */
+export type MyTimeOff = {
+  timezone: string;
+  today: string;
+  stretches: MyStretch[];
+  conflicts: TimeOffConflict[];
+};

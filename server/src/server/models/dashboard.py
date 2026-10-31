@@ -199,3 +199,87 @@ class AnswerRequest(BaseModel):
     """What a request's Accept or Reject posts. Any other status is a 422."""
 
     status: Answer
+
+
+# A calendar's reach, so a day's midnight can always be turned into an instant.
+_EARLIEST_DAY = date(2000, 1, 1)
+_LATEST_DAY = date(2100, 12, 31)
+
+
+class SaveStretch(BaseModel):
+    """
+    One stretch of the time off form: whole days, both ends included, on the
+    calendar of the shop the form was opened at. id is set when the stretch
+    already exists.
+    """
+
+    id: UUID | None = None
+    first_day: date = Field(ge=_EARLIEST_DAY, le=_LATEST_DAY)
+    last_day: date = Field(ge=_EARLIEST_DAY, le=_LATEST_DAY)
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> Self:
+        if self.last_day < self.first_day:
+            raise ValueError("Time off has to end on or after its first day")
+        return self
+
+
+class SaveTimeOff(BaseModel):
+    """
+    What the time off form posts: every stretch still to come. A saved stretch
+    left out is removed, so an empty list clears the caller's time off.
+    """
+
+    stretches: list[SaveStretch] = Field(max_length=50)
+
+    @model_validator(mode="after")
+    def _each_id_once(self) -> Self:
+        ids = [s.id for s in self.stretches if s.id is not None]
+        if len(set(ids)) != len(ids):
+            raise ValueError("Each stretch can only appear once")
+        return self
+
+
+class TimeOffConflict(BaseModel):
+    """
+    A PENDING or ACCEPTED booking that falls in the caller's time off. The
+    fields are also the select list, so the client's phone, email, and notes
+    stay unread. shop is None once the caller can no longer see the shop.
+    """
+
+    class Shop(BaseModel):
+        slug: str
+        name: str
+        timezone: str
+
+    id: UUID
+    starts_at: AwareDatetime
+    duration_min: int
+    client_name: str
+    service_title: str
+    status: Status
+    shop: Shop | None = None
+
+
+class MyStretch(BaseModel):
+    """
+    One stretch of the caller's time off, as whole days on a shop's calendar,
+    both ends included. bookings counts the conflicts that fall in it.
+    """
+
+    id: UUID
+    first_day: date
+    last_day: date
+    bookings: int
+
+
+class MyTimeOff(BaseModel):
+    """
+    The caller's time off still to come, soonest first, on the calendar of one
+    of their shops, with every booking it overlaps. today is that shop's.
+    """
+
+    timezone: str
+    today: date
+    stretches: list[MyStretch]
+    conflicts: list[TimeOffConflict]

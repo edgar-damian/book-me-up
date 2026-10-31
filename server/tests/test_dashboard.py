@@ -15,11 +15,11 @@ import pytest
 from postgrest import APIError, ReturnMethod
 
 from server.main import app
-from server.models.dashboard import Answer
+from server.models.dashboard import Answer, SaveStretch
 from server.routes.auth import current_user
 from server.supabase import sb_function
 from server.supabase.auth import Caller
-from server.supabase.dashboard import answer_request, get_week
+from server.supabase.dashboard import answer_request, get_time_off, get_week, save_time_off
 
 URL = "/dashboard/profile"
 CALLER = Caller(user_id="00000001-0000-4000-8000-000000000005", access_token="access-1")
@@ -253,6 +253,12 @@ def test_malformed_slug_or_phone_is_422_and_never_queries(client, db, change):
             "PUT",
             "/dashboard/services",
             {"services": [{"title": "Fade", "price_cents": 3500, "duration_min": 45}]},
+        ),
+        ("GET", "/dashboard/time-off?chair=0000000c-0000-4000-8000-000000000001", None),
+        (
+            "PUT",
+            "/dashboard/time-off?chair=0000000c-0000-4000-8000-000000000001",
+            {"stretches": []},
         ),
     ],
 )
@@ -1122,5 +1128,438 @@ def test_saving_the_menu_failures(client, db, services, read, insert, code):
     services.insert.return_value.execute.configure_mock(**insert)
 
     response = client.put(SERVICES_URL, json={"services": [without_id(SKIN_FADE)]})
+
+    assert response.status_code == code
+
+
+TIME_OFF_URL = "/dashboard/time-off"
+STRETCH_IDS = [f"00000009-0000-4000-8000-00000000000{i}" for i in range(1, 4)]
+SUN_1 = date(2026, 11, 1)
+THU_5 = date(2026, 11, 5)
+KRUSTY_SHOP = {"slug": KRUSTY["slug"], "name": KRUSTY["name"], "timezone": KRUSTY["timezone"]}
+BOOKED_COLS = (
+    "id, starts_at, duration_min, client_name, service_title, status, "
+    "shop:establishment(slug, name, timezone), block_ends_at"
+)
+
+
+def time_off_url(chair_id=CHAIR_IDS[KRUSTY["id"]]):
+    return f"{TIME_OFF_URL}?chair={chair_id}"
+
+
+def stretch(first, last, id=STRETCH_IDS[0]):
+    """One worker_time_off row covering these days on Krusty Fadez's calendar."""
+    return {
+        "id": id,
+        "starts": at_krusty(first, "00:00"),
+        "ends": at_krusty(last + timedelta(days=1), "00:00"),
+    }
+
+
+def in_time_off(starts_at, block_ends_at, status="ACCEPTED", **row):
+    """One booking row as the time off check reads it."""
+    return {
+        "id": APPOINTMENT_ID,
+        "starts_at": starts_at,
+        "duration_min": 45,
+        "client_name": "Pearl Krabs",
+        "service_title": "The Bubble Fade",
+        "status": status,
+        "shop": KRUSTY_SHOP,
+        "block_ends_at": block_ends_at,
+    } | row
+
+
+def krusty_midnight(day):
+    return at_krusty(day, "00:00")
+
+
+@pytest.fixture
+def time_off(db):
+    """
+    The caller's chair at Krusty Fadez, the time off and bookings reads, both
+    empty unless a test fills them, and the three time off writes.
+    """
+    db.read.execute.return_value = rows(mine(chair(KRUSTY, is_active=True)))
+    table = db.tables["worker_time_off"]
+    appointment = db.tables["appointment"]
+    upcoming = table.select.return_value.eq.return_value.gt.return_value.order.return_value
+    booked = appointment.select.return_value.eq.return_value.in_.return_value
+    booked = booked.lt.return_value.gt.return_value.order.return_value
+    upcoming.execute.return_value = rows()
+    booked.execute.return_value = rows()
+    return SimpleNamespace(
+        table=table,
+        appointment=appointment,
+        upcoming=upcoming,
+        booked=booked,
+        delete=table.delete,
+        upsert=table.upsert,
+        insert=table.insert,
+    )
+
+
+def time_off_at_krusty():
+    return get_time_off(CALLER, UUID(CHAIR_IDS[KRUSTY["id"]]), now_utc=NOW)
+
+
+def save_at_krusty(*stretches):
+    return save_time_off(CALLER, UUID(CHAIR_IDS[KRUSTY["id"]]), list(stretches), now_utc=NOW)
+
+
+def test_time_off_lists_whole_days_on_the_shops_calendar(db, time_off):
+    time_off.upcoming.execute.return_value = rows(stretch(MON_2, TUE_3))
+    time_off.booked.execute.return_value = rows(
+        in_time_off(at_krusty(MON_2, "09:00"), at_krusty(MON_2, "09:55"))
+    )
+
+    found = time_off_at_krusty()
+
+    assert found.timezone == "Pacific/Kwajalein"
+    assert found.today == SAT_31
+    assert [(s.first_day, s.last_day, s.bookings) for s in found.stretches] == [(MON_2, TUE_3, 1)]
+    assert [(c.client_name, c.shop.name) for c in found.conflicts] == [
+        ("Pearl Krabs", "Krusty Fadez")
+    ]
+
+
+def test_time_off_reads_the_callers_stretches_then_their_bookings_in_them(db, time_off):
+    time_off.upcoming.execute.return_value = rows(
+        stretch(MON_2, MON_2), stretch(THU_5, THU_5, id=STRETCH_IDS[1])
+    )
+
+    time_off_at_krusty()
+
+    assert time_off.table.select.call_args == call("id, starts, ends")
+    by_worker = time_off.table.select.return_value.eq
+    assert by_worker.call_args == call("worker_id", WORKER_ID)
+    assert by_worker.return_value.gt.call_args == call("ends", NOW.isoformat())
+    assert by_worker.return_value.gt.return_value.order.call_args == call("starts")
+    assert time_off.appointment.select.call_args == call(BOOKED_COLS)
+    by_worker = time_off.appointment.select.return_value.eq
+    holding = by_worker.return_value.in_
+    before = holding.return_value.lt
+    after = before.return_value.gt
+    assert by_worker.call_args == call("worker_id", WORKER_ID)
+    assert holding.call_args == call("status", ["PENDING", "ACCEPTED"])
+    assert before.call_args == call("starts_at", krusty_midnight(THU_5 + timedelta(days=1)))
+    assert after.call_args == call("block_ends_at", krusty_midnight(MON_2))
+    assert after.return_value.order.call_args == call("starts_at")
+
+
+def test_time_off_under_way_checks_only_bookings_not_over_yet(db, time_off):
+    time_off.upcoming.execute.return_value = rows(stretch(date(2026, 10, 30), MON_2))
+
+    found = time_off_at_krusty()
+
+    assert (found.stretches[0].first_day, found.stretches[0].last_day) == (
+        date(2026, 10, 30),
+        MON_2,
+    )
+    after = time_off.appointment.select.return_value.eq.return_value.in_.return_value.lt
+    assert after.return_value.gt.call_args == call("block_ends_at", NOW.isoformat())
+
+
+def test_no_time_off_reads_no_bookings(db, time_off):
+    found = time_off_at_krusty()
+
+    assert (found.stretches, found.conflicts) == ([], [])
+    time_off.appointment.select.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("starts_at", "block_ends_at", "counted"),
+    [
+        (at_krusty(SUN_1, "23:15"), at_krusty(MON_2, "00:10"), True),
+        (at_krusty(SUN_1, "23:15"), at_krusty(MON_2, "00:00"), False),
+        (at_krusty(MON_2, "23:30"), at_krusty(TUE_3, "00:30"), True),
+        (at_krusty(TUE_3, "00:00"), at_krusty(TUE_3, "00:45"), False),
+    ],
+    ids=["buffer-runs-in", "ends-as-it-starts", "runs-past-the-end", "starts-as-it-ends"],
+)
+def test_a_booking_counts_when_it_or_its_buffer_overlaps(
+    db, time_off, starts_at, block_ends_at, counted
+):
+    time_off.upcoming.execute.return_value = rows(stretch(MON_2, MON_2))
+    time_off.booked.execute.return_value = rows(in_time_off(starts_at, block_ends_at))
+
+    found = time_off_at_krusty()
+
+    assert found.stretches[0].bookings == int(counted)
+    assert len(found.conflicts) == int(counted)
+
+
+def test_a_booking_between_two_stretches_isnt_listed(db, time_off):
+    time_off.upcoming.execute.return_value = rows(
+        stretch(MON_2, MON_2), stretch(THU_5, THU_5, id=STRETCH_IDS[1])
+    )
+    time_off.booked.execute.return_value = rows(
+        in_time_off(at_krusty(TUE_3, "10:00"), at_krusty(TUE_3, "10:45"))
+    )
+
+    found = time_off_at_krusty()
+
+    assert [s.bookings for s in found.stretches] == [0, 0]
+    assert found.conflicts == []
+
+
+def test_time_off_sends_only_what_a_booking_shows(client, db, time_off):
+    time_off.upcoming.execute.return_value = rows(stretch(MON_2, TUE_3))
+    time_off.booked.execute.return_value = rows(
+        in_time_off(at_krusty(MON_2, "09:00"), at_krusty(MON_2, "09:55"))
+    )
+
+    response = client.get(time_off_url())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["timezone"] == "Pacific/Kwajalein"
+    assert body["stretches"] == [
+        {"id": STRETCH_IDS[0], "first_day": "2026-11-02", "last_day": "2026-11-03", "bookings": 1}
+    ]
+    [listed] = body["conflicts"]
+    assert set(listed) == {
+        "id",
+        "starts_at",
+        "duration_min",
+        "client_name",
+        "service_title",
+        "status",
+        "shop",
+    }
+    assert listed["shop"] == KRUSTY_SHOP
+
+
+@pytest.mark.parametrize("method", ["GET", "PUT"])
+@pytest.mark.parametrize(
+    ("held", "chair_id"),
+    [
+        (mine(chair(KRUSTY, is_active=True)), NEW_CHAIR),
+        (mine(chair(KRUSTY, ended_at="2025-06-01T00:00:00+00:00")), CHAIR_IDS[KRUSTY["id"]]),
+        (None, CHAIR_IDS[KRUSTY["id"]]),
+    ],
+    ids=["someone-elses-chair", "ended-chair", "no-profile"],
+)
+def test_time_off_at_a_chair_the_caller_doesnt_hold_is_404(
+    client, db, time_off, held, chair_id, method
+):
+    db.read.execute.return_value = rows() if held is None else rows(held)
+    body = {"stretches": [{"first_day": "2026-11-02", "last_day": "2026-11-02"}]}
+
+    response = client.request(
+        method, time_off_url(chair_id), json=body if method == "PUT" else None
+    )
+
+    assert response.status_code == 404
+    time_off.table.select.assert_not_called()
+    time_off.insert.assert_not_called()
+
+
+@pytest.mark.parametrize("method", ["GET", "PUT"])
+@pytest.mark.parametrize(
+    "url", [f"{TIME_OFF_URL}?chair=chair-1", TIME_OFF_URL], ids=["malformed-chair", "no-chair"]
+)
+def test_time_off_needs_a_well_formed_chair(client, db, url, method):
+    response = client.request(method, url, json={"stretches": []} if method == "PUT" else None)
+
+    assert response.status_code == 422
+    db.factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("outcome", "code"),
+    [
+        ({"side_effect": APIError({"code": "PGRST303", "message": "JWT expired"})}, 401),
+        ({"side_effect": APIError({"code": "42501", "message": "permission denied"})}, 503),
+        ({"return_value": rows({"id": STRETCH_IDS[0]})}, 503),
+    ],
+    ids=["token-rejected", "query-failed", "schema-mismatch"],
+)
+def test_time_off_failures(client, db, time_off, outcome, code):
+    time_off.upcoming.execute.configure_mock(**outcome)
+
+    assert client.get(time_off_url()).status_code == code
+
+
+def test_new_time_off_runs_from_midnight_to_midnight_on_the_shops_clock(client, db, time_off):
+    db.read.execute.return_value = rows(mine(chair(REGULAR, is_active=True)))
+
+    response = client.put(
+        time_off_url(CHAIR_IDS[REGULAR["id"]]),
+        json={"stretches": [{"first_day": "2026-10-31", "last_day": "2026-11-01"}]},
+    )
+
+    assert response.status_code == 200
+    # Los Angeles turns its clocks back on November 1, so the two days run 49 hours.
+    time_off.insert.assert_called_once_with(
+        [
+            {
+                "worker_id": WORKER_ID,
+                "starts": "2026-10-31T07:00:00+00:00",
+                "ends": "2026-11-02T08:00:00+00:00",
+            }
+        ],
+        returning=ReturnMethod.minimal,
+    )
+    time_off.delete.assert_not_called()
+    time_off.upsert.assert_not_called()
+
+
+def test_saving_time_off_removes_changes_and_adds(db, time_off):
+    time_off.upcoming.execute.side_effect = [
+        rows(
+            stretch(MON_2, MON_2),
+            stretch(THU_5, THU_5, id=STRETCH_IDS[1]),
+            stretch(TUE_3, TUE_3, id=STRETCH_IDS[2]),
+        ),
+        rows(),
+    ]
+    nov_20 = date(2026, 11, 20)
+
+    save_at_krusty(
+        SaveStretch(id=STRETCH_IDS[0], first_day=MON_2, last_day=MON_2),
+        SaveStretch(id=STRETCH_IDS[1], first_day=THU_5, last_day=THU_5 + timedelta(days=1)),
+        SaveStretch(first_day=nov_20, last_day=nov_20),
+    )
+
+    time_off.delete.assert_called_once_with(returning=ReturnMethod.minimal)
+    by_worker = time_off.delete.return_value.eq
+    assert by_worker.call_args == call("worker_id", WORKER_ID)
+    assert by_worker.return_value.in_.call_args == call("id", [STRETCH_IDS[2]])
+    time_off.upsert.assert_called_once_with(
+        [
+            {
+                "id": STRETCH_IDS[1],
+                "worker_id": WORKER_ID,
+                "starts": krusty_midnight(THU_5),
+                "ends": krusty_midnight(THU_5 + timedelta(days=2)),
+            }
+        ],
+        on_conflict="id",
+        returning=ReturnMethod.minimal,
+    )
+    time_off.insert.assert_called_once_with(
+        [
+            {
+                "worker_id": WORKER_ID,
+                "starts": krusty_midnight(nov_20),
+                "ends": krusty_midnight(nov_20 + timedelta(days=1)),
+            }
+        ],
+        returning=ReturnMethod.minimal,
+    )
+
+
+@pytest.mark.parametrize(
+    ("saved", "last_day"),
+    [
+        (stretch(MON_2, TUE_3), TUE_3),
+        (
+            {
+                "id": STRETCH_IDS[0],
+                "starts": at_krusty(MON_2, "10:00"),
+                "ends": at_krusty(MON_2, "12:00"),
+            },
+            MON_2,
+        ),
+    ],
+    ids=["whole-days", "part-of-a-day"],
+)
+def test_time_off_whose_days_didnt_change_isnt_rewritten(db, time_off, saved, last_day):
+    time_off.upcoming.execute.return_value = rows(saved)
+
+    save_at_krusty(SaveStretch(id=STRETCH_IDS[0], first_day=MON_2, last_day=last_day))
+
+    time_off.delete.assert_not_called()
+    time_off.upsert.assert_not_called()
+    time_off.insert.assert_not_called()
+
+
+def test_a_new_stretch_that_repeats_another_is_skipped(db, time_off):
+    time_off.upcoming.execute.return_value = rows(stretch(MON_2, MON_2))
+
+    save_at_krusty(
+        SaveStretch(id=STRETCH_IDS[0], first_day=MON_2, last_day=MON_2),
+        SaveStretch(first_day=MON_2, last_day=MON_2),
+        SaveStretch(first_day=THU_5, last_day=THU_5),
+        SaveStretch(first_day=THU_5, last_day=THU_5),
+    )
+
+    time_off.insert.assert_called_once_with(
+        [
+            {
+                "worker_id": WORKER_ID,
+                "starts": krusty_midnight(THU_5),
+                "ends": krusty_midnight(THU_5 + timedelta(days=1)),
+            }
+        ],
+        returning=ReturnMethod.minimal,
+    )
+
+
+def test_saving_no_time_off_removes_all_still_to_come(client, db, time_off):
+    time_off.upcoming.execute.return_value = rows(
+        stretch(MON_2, MON_2), stretch(THU_5, THU_5, id=STRETCH_IDS[1])
+    )
+
+    assert client.put(time_off_url(), json={"stretches": []}).status_code == 200
+    removed = time_off.delete.return_value.eq.return_value.in_
+    assert removed.call_args == call("id", STRETCH_IDS[:2])
+    time_off.insert.assert_not_called()
+
+
+def test_time_off_over_bookings_is_saved_and_comes_back_with_them(client, db, time_off):
+    time_off.upcoming.execute.side_effect = [rows(), rows(stretch(MON_2, MON_2))]
+    time_off.booked.execute.return_value = rows(
+        in_time_off(at_krusty(MON_2, "09:00"), at_krusty(MON_2, "09:55"), "PENDING")
+    )
+
+    response = client.put(
+        time_off_url(), json={"stretches": [{"first_day": "2026-11-02", "last_day": "2026-11-02"}]}
+    )
+
+    assert response.status_code == 200
+    time_off.insert.assert_called_once()
+    body = response.json()
+    assert body["stretches"] == [
+        {"id": STRETCH_IDS[0], "first_day": "2026-11-02", "last_day": "2026-11-02", "bookings": 1}
+    ]
+    assert [(c["client_name"], c["status"]) for c in body["conflicts"]] == [
+        ("Pearl Krabs", "PENDING")
+    ]
+
+
+@pytest.mark.parametrize(
+    "posted",
+    [
+        [{"first_day": "2026-11-03", "last_day": "2026-11-02"}],
+        [{"id": STRETCH_IDS[0], "first_day": "2026-11-02", "last_day": "2026-11-02"}] * 2,
+        [{"first_day": "2026-11-02", "last_day": "2026-11-02"}] * 51,
+        [{"first_day": "1999-12-31", "last_day": "2026-11-02"}],
+        [{"first_day": "2026-11-02", "last_day": "9999-12-31"}],
+        [{"first_day": "2026-11-02"}],
+    ],
+    ids=["ends-before-it-starts", "repeated-id", "too-many", "too-early", "too-late", "no-end"],
+)
+def test_bad_time_off_is_422_and_never_queries(client, db, posted):
+    assert client.put(time_off_url(), json={"stretches": posted}).status_code == 422
+    db.factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("read", "insert", "code"),
+    [
+        ({"side_effect": APIError({"code": "PGRST303", "message": "JWT expired"})}, {}, 401),
+        ({}, {"side_effect": APIError({"code": "42501", "message": "row-level security"})}, 503),
+    ],
+    ids=["token-rejected", "insert-refused"],
+)
+def test_saving_time_off_failures(client, db, time_off, read, insert, code):
+    time_off.upcoming.execute.configure_mock(**read)
+    time_off.insert.return_value.execute.configure_mock(**insert)
+
+    response = client.put(
+        time_off_url(), json={"stretches": [{"first_day": "2026-11-02", "last_day": "2026-11-02"}]}
+    )
 
     assert response.status_code == code

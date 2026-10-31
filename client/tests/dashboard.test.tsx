@@ -9,8 +9,11 @@ import type {
   MyChair,
   MyDay,
   MyService,
+  MyStretch,
+  MyTimeOff,
   MyWeek,
   MyWorkerProfile,
+  TimeOffConflict,
 } from "~/models/dashboard";
 import DashboardRoute, { action, loader } from "~/routes/dashboard";
 import { commitSession, getSession } from "~/sessions.server";
@@ -121,6 +124,29 @@ const SKIN_FADE: MyService = {
   price_cents: 3500,
   duration_min: 45,
   buffer_after_min: 10,
+};
+/** Monday and Tuesday off, on Regular Cutz's calendar. */
+const AWAY: MyStretch = {
+  id: "00000009-0000-4000-8000-000000000001",
+  first_day: "2026-11-02",
+  last_day: "2026-11-03",
+  bookings: 1,
+};
+/** Ethan's Monday request, which falls in AWAY. */
+const ETHAN_AWAY: TimeOffConflict = {
+  id: ETHAN.id,
+  starts_at: ETHAN.starts_at,
+  duration_min: ETHAN.duration_min,
+  client_name: ETHAN.client_name,
+  service_title: ETHAN.service_title,
+  status: ETHAN.status,
+  shop: { slug: "regular-cutz", name: "Regular Cutz", timezone: "America/Los_Angeles" },
+};
+const TIME_OFF: MyTimeOff = {
+  timezone: "America/Los_Angeles",
+  today: "2026-10-30",
+  stretches: [AWAY],
+  conflicts: [ETHAN_AWAY],
 };
 
 beforeEach(() => {
@@ -389,6 +415,28 @@ describe("dashboard loader", () => {
     expect(result.data.editing).toMatchObject({ edit: "schedule", chair: WAITING });
   });
 
+  it("opens time off on the calendar of the shop the worker has joined, as the worker", async () => {
+    const path = `/dashboard/time-off?chair=${JOINED.id}`;
+    const fetchMock = stubApi({ ...saved([WAITING, JOINED]), [path]: { status: 200, body: TIME_OFF } });
+
+    const result = await load(await cookie(3600), "?edit=time-off");
+
+    expect(result.data.editing).toEqual({ edit: "time-off", chair: JOINED, timeOff: TIME_OFF });
+    const [, init] = fetchMock.mock.calls.find(([url]) => url === `${API_URL}${path}`)!;
+    expect(init?.headers).toEqual({ Authorization: "Bearer access-1" });
+  });
+
+  it("opens time off on the calendar of the shop ?chair= names", async () => {
+    stubApi({
+      ...saved([JOINED, FADE_LAB]),
+      [`/dashboard/time-off?chair=${FADE_LAB.id}`]: { status: 200, body: TIME_OFF },
+    });
+
+    const result = await load(await cookie(3600), `?edit=time-off&chair=${FADE_LAB.id}`);
+
+    expect(result.data.editing).toMatchObject({ edit: "time-off", chair: FADE_LAB });
+  });
+
   it.each([
     { edit: "profile", editing: { edit: "profile", profile: PROFILE } },
     { edit: "services", editing: { edit: "services", services: [SKIN_FADE] } },
@@ -401,8 +449,9 @@ describe("dashboard loader", () => {
   });
 
   it.each([
-    { what: "a part it doesn't know, like time off", search: "?edit=time-off", chairs: [JOINED] },
+    { what: "a part it doesn't know", search: "?edit=billing", chairs: [JOINED] },
     { what: "hours without a current chair", search: "?edit=schedule", chairs: [] },
+    { what: "time off without a current chair", search: "?edit=time-off", chairs: [] },
   ])("opens nothing for $what", async ({ search, chairs }) => {
     stubApi(saved(chairs));
 
@@ -446,7 +495,7 @@ describe("dashboard action", () => {
   };
 
   /** The real action, called the way the dialog's Save would call it from `search`. */
-  const post = async (fields: Record<string, string>, search = "") =>
+  const post = async (fields: Record<string, string> | string[][], search = "") =>
     action({
       request: new Request(`http://localhost/dashboard${search}`, {
         method: "POST",
@@ -540,11 +589,79 @@ describe("dashboard action", () => {
 
     expect(response.headers.get("Location")).toBe("/login");
   });
+
+  /** What the time off form posts: AWAY as saved, a new Friday, and a new row left blank. */
+  const TIME_OFF_FORM = [
+    ["intent", "worker-time-off"],
+    ["chair", JOINED.id],
+    ["stretch", AWAY.id],
+    [`id-${AWAY.id}`, AWAY.id],
+    [`first-${AWAY.id}`, AWAY.first_day],
+    [`last-${AWAY.id}`, AWAY.last_day],
+    ["stretch", "new-1"],
+    ["id-new-1", ""],
+    ["first-new-1", "2026-11-06"],
+    ["last-new-1", "2026-11-06"],
+    ["stretch", "new-2"],
+    ["id-new-2", ""],
+    ["first-new-2", ""],
+    ["last-new-2", ""],
+  ];
+  const TIME_OFF_PATH = `/dashboard/time-off?chair=${JOINED.id}`;
+
+  it("PUTs the time off as the user, skipping the blank row, then closes the dialog", async () => {
+    const fetchMock = stubApi({ [TIME_OFF_PATH]: { status: 200, body: { ...TIME_OFF, conflicts: [] } } });
+
+    const response = await post(TIME_OFF_FORM, `?edit=time-off&chair=${JOINED.id}`);
+
+    expect((response as Response).headers.get("Location")).toBe(`/dashboard?chair=${JOINED.id}`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${API_URL}${TIME_OFF_PATH}`);
+    expect(init?.method).toBe("PUT");
+    expect(init?.headers).toEqual({ Authorization: "Bearer access-1", "Content-Type": "application/json" });
+    expect(JSON.parse(String(init?.body))).toEqual({
+      stretches: [
+        { id: AWAY.id, first_day: "2026-11-02", last_day: "2026-11-03" },
+        { id: null, first_day: "2026-11-06", last_day: "2026-11-06" },
+      ],
+    });
+  });
+
+  it("keeps the dialog open on the bookings saved time off falls on, without an error status", async () => {
+    stubApi({ [TIME_OFF_PATH]: { status: 200, body: TIME_OFF } });
+
+    const result = await post(TIME_OFF_FORM);
+
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toMatchObject({ data: { error: null, conflicts: [ETHAN_AWAY] } });
+    expect((result as { init?: ResponseInit }).init?.status).toBeUndefined();
+  });
+
+  it.each([
+    { status: 422, error: "Check your dates, then try again" },
+    { status: 404, error: "Choose your shop first" },
+    { status: 503, error: "Could not save your time off, please try again" },
+  ])("keeps the dialog open on time off the API refuses with $status", async ({ status, error }) => {
+    stubApi({ [TIME_OFF_PATH]: { status } });
+
+    const result = await post(TIME_OFF_FORM);
+
+    expect(result).toMatchObject({ data: { error, conflicts: null }, init: { status } });
+  });
+
+  it("logs the visitor out when the API rejects the token for time off", async () => {
+    stubApi({ [TIME_OFF_PATH]: { status: 401 } });
+
+    const response = await thrown(post(TIME_OFF_FORM));
+
+    expect(response.headers.get("Location")).toBe("/login");
+  });
 });
 
 describe("dashboard page", () => {
   /** What the stand-in loader opens for ?edit= and ?chair=, the first chair by default. */
-  function editingAt(url: string, chairs: MyChair[]): Editing | null {
+  function editingAt(url: string, chairs: MyChair[], timeOff: MyTimeOff): Editing | null {
     const params = new URL(url).searchParams;
     const chair = chairs.find((c) => c.id === params.get("chair")) ?? chairs[0];
     switch (params.get("edit")) {
@@ -554,6 +671,8 @@ describe("dashboard page", () => {
         return { edit: "schedule", chairs, chair };
       case "services":
         return { edit: "services", services: [SKIN_FADE] };
+      case "time-off":
+        return { edit: "time-off", chair, timeOff };
       default:
         return null;
     }
@@ -563,16 +682,26 @@ describe("dashboard page", () => {
    * The real route component, with a stand-in action and a stand-in loader that
    * follows the URL: the week is at the shop ?chair= names, else the first joined.
    * An answer lands in the stand-in's copy of the week unless it's refused, or
-   * hangs, and the action answers it with data the way the real one does.
+   * hangs, and the action answers it with data the way the real one does. Time
+   * off saved over `conflicts` is answered with them, as the real action does.
    */
   function renderPage(
     url = "/dashboard",
     {
       chairs = [JOINED],
       week = WEEK,
+      timeOff = TIME_OFF,
+      conflicts,
       refusal,
       hang = false,
-    }: { chairs?: MyChair[]; week?: MyWeek; refusal?: string; hang?: boolean } = {},
+    }: {
+      chairs?: MyChair[];
+      week?: MyWeek;
+      timeOff?: MyTimeOff;
+      conflicts?: TimeOffConflict[];
+      refusal?: string;
+      hang?: boolean;
+    } = {},
   ) {
     const posted: FormData[] = [];
     let current = week;
@@ -592,6 +721,7 @@ describe("dashboard page", () => {
         };
         return { error: null };
       }
+      if (form.get("intent") === "worker-time-off" && conflicts) return { error: null, conflicts };
       return refusal ? data({ error: refusal }, { status: 409 }) : redirect("/dashboard");
     });
     const Stub = createRoutesStub([
@@ -602,7 +732,7 @@ describe("dashboard page", () => {
           const shops = chairs.filter((c) => c.is_active);
           const named = new URL(request.url).searchParams.get("chair");
           const chair = shops.find((c) => c.id === named) ?? shops.at(0) ?? null;
-          return { editing: editingAt(request.url, chairs), chairs, chair, week: chair && current };
+          return { editing: editingAt(request.url, chairs, timeOff), chairs, chair, week: chair && current };
         },
         action: pageAction,
       },
@@ -947,5 +1077,137 @@ describe("dashboard page", () => {
       await within(hours).findByText("Your hours at Krusty Fadez. Times are the shop's local time."),
     ).toBeInTheDocument();
     expect(within(shops).getByRole("link", { name: "Krusty Fadez" })).toHaveAttribute("aria-current", "true");
+  });
+
+  const NOTHING_OFF: MyTimeOff = { ...TIME_OFF, stretches: [], conflicts: [] };
+
+  it("opens time off from the header, listing what's coming up", async () => {
+    const { user } = renderPage();
+    const nav = await screen.findByRole("navigation", { name: "Primary" });
+
+    await user.click(within(nav).getByRole("link", { name: "Time off" }));
+
+    const away = await opened("Your time off");
+    expect(within(away).getByText("Mon, Nov 2 – Tue, Nov 3")).toBeInTheDocument();
+    expect(within(away).getByText("2 days · 1 booking in it")).toBeInTheDocument();
+    expect(within(away).getByRole("button", { name: "Edit Mon, Nov 2 – Tue, Nov 3" })).toBeInTheDocument();
+    expect(within(away).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(within(away).getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("starts on a blank row when no time off is coming up, ending no earlier than today", async () => {
+    renderPage("/dashboard?edit=time-off", { timeOff: NOTHING_OFF });
+
+    const away = await opened("Your time off");
+    expect(within(away).getByLabelText("First day off")).toHaveValue("");
+    expect(within(away).getByLabelText("Last day off")).toHaveAttribute("min", "2026-10-30");
+  });
+
+  it("checks the days on Save, and posts nothing until they make sense", async () => {
+    const { user, posted } = renderPage("/dashboard?edit=time-off", { timeOff: NOTHING_OFF });
+    const away = await opened("Your time off");
+    const first = within(away).getByLabelText("First day off");
+    const last = within(away).getByLabelText("Last day off");
+    const save = within(away).getByRole("button", { name: "Save" });
+
+    fireEvent.change(first, { target: { value: "2026-11-06" } });
+    await user.click(save);
+    expect(within(away).getByText("Enter your last day off")).toBeInTheDocument();
+    await waitFor(() => expect(last).toHaveFocus());
+
+    fireEvent.change(last, { target: { value: "2026-11-05" } });
+    await user.click(save);
+    expect(within(away).getByText("End on or after the first day")).toBeInTheDocument();
+
+    fireEvent.change(first, { target: { value: "2026-10-20" } });
+    fireEvent.change(last, { target: { value: "2026-10-29" } });
+    await user.click(save);
+    expect(within(away).getByText("End today or later")).toBeInTheDocument();
+    expect(posted).toHaveLength(0);
+  });
+
+  it("adds a stretch, then posts every one on Save, named by its intent, and closes", async () => {
+    const { user, posted } = renderPage("/dashboard?edit=time-off");
+    const away = await opened("Your time off");
+
+    await user.click(within(away).getByRole("button", { name: "Add time off" }));
+    const [, first] = within(away).getAllByLabelText("First day off");
+    const [, last] = within(away).getAllByLabelText("Last day off");
+    await waitFor(() => expect(first).toHaveFocus());
+    fireEvent.change(first, { target: { value: "2026-11-06" } });
+    fireEvent.change(last, { target: { value: "2026-11-06" } });
+    await user.click(within(away).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(away).not.toBeInTheDocument());
+    expect(posted).toHaveLength(1);
+    expect(posted[0].get("intent")).toBe("worker-time-off");
+    expect(posted[0].get("chair")).toBe(JOINED.id);
+    expect(posted[0].getAll("stretch")).toEqual([AWAY.id, "new-1"]);
+    expect([posted[0].get(`first-${AWAY.id}`), posted[0].get(`last-${AWAY.id}`)]).toEqual([
+      "2026-11-02",
+      "2026-11-03",
+    ]);
+    expect([posted[0].get("first-new-1"), posted[0].get("last-new-1")]).toEqual(["2026-11-06", "2026-11-06"]);
+  });
+
+  it("edits a stretch in place, and drops its count of bookings once its days change", async () => {
+    const { user } = renderPage("/dashboard?edit=time-off");
+    const away = await opened("Your time off");
+
+    await user.click(within(away).getByRole("button", { name: "Edit Mon, Nov 2 – Tue, Nov 3" }));
+    await waitFor(() => expect(within(away).getByLabelText("First day off")).toHaveFocus());
+    fireEvent.change(within(away).getByLabelText("Last day off"), { target: { value: "2026-11-04" } });
+    await user.click(within(away).getByRole("button", { name: "Add time off" }));
+
+    expect(within(away).getByText("Mon, Nov 2 – Wed, Nov 4")).toBeInTheDocument();
+    expect(within(away).getByText("3 days")).toBeInTheDocument();
+  });
+
+  it("deletes a stretch, leaving a blank row that Save posts as nothing", async () => {
+    const { user, posted } = renderPage("/dashboard?edit=time-off");
+    const away = await opened("Your time off");
+
+    await user.click(within(away).getByRole("button", { name: "Delete Mon, Nov 2 – Tue, Nov 3" }));
+
+    expect(within(away).queryByText("Mon, Nov 2 – Tue, Nov 3")).not.toBeInTheDocument();
+    await waitFor(() => expect(within(away).getByLabelText("First day off")).toHaveFocus());
+    await user.click(within(away).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(away).not.toBeInTheDocument());
+    expect(posted[0].getAll("stretch")).toEqual(["new-1"]);
+    expect(posted[0].get("first-new-1")).toBe("");
+  });
+
+  it("lists the bookings saved time off falls on, on their shop's clock, until Done", async () => {
+    const { user } = renderPage("/dashboard?edit=time-off", { conflicts: [ETHAN_AWAY] });
+    const away = await opened("Your time off");
+
+    await user.click(within(away).getByRole("button", { name: "Save" }));
+
+    expect(await within(away).findByRole("alert")).toHaveTextContent(
+      "Your time off is saved. This booking falls in it:",
+    );
+    expect(within(away).getByText(/^Mon, Nov 2 · 9:30\sAM$/)).toBeInTheDocument();
+    expect(within(away).getByText("Ethan Brooks · Buzz cut")).toBeInTheDocument();
+    expect(within(away).getByText("Pending")).toBeInTheDocument();
+    expect(within(away).queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    const done = within(away).getByRole("button", { name: "Done" });
+    await waitFor(() => expect(done).toHaveFocus());
+
+    await user.click(done);
+
+    await waitFor(() => expect(away).not.toBeInTheDocument());
+  });
+
+  it("names the shop of a booking at another of the worker's shops", async () => {
+    const elsewhere = { ...ETHAN_AWAY, shop: { slug: "fade-lab", name: "Fade Lab", timezone: "America/New_York" } };
+    const { user } = renderPage("/dashboard?edit=time-off", { chairs: [JOINED, FADE_LAB], conflicts: [elsewhere] });
+    const away = await opened("Your time off");
+
+    await user.click(within(away).getByRole("button", { name: "Save" }));
+
+    // 17:30 UTC is 12:30 in the afternoon in New York.
+    expect(await within(away).findByText(/^Mon, Nov 2 · 12:30\sPM$/)).toBeInTheDocument();
+    expect(within(away).getByText("Ethan Brooks · Buzz cut · Fade Lab")).toBeInTheDocument();
   });
 });

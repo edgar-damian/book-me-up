@@ -19,11 +19,15 @@ from server.models.dashboard import (
     MyChair,
     MyDay,
     MyService,
+    MyStretch,
+    MyTimeOff,
     MyWeek,
     MyWorkerProfile,
     SaveService,
+    SaveStretch,
     SaveWorkerProfile,
     ScheduleDay,
+    TimeOffConflict,
 )
 from server.models.public_models import CancelledBy, Status
 from server.supabase.auth import Caller
@@ -146,8 +150,24 @@ class _TimeOff(BaseModel):
     ends: AwareDatetime
 
 
+class _Stretch(BaseModel):
+    """One stretch of the caller's time off, with the id a save changes it by."""
+
+    id: UUID
+    starts: AwareDatetime
+    ends: AwareDatetime
+
+
+class _Booked(TimeOffConflict):
+    """A booking as the time off check reads it. block_ends_at keeps the buffer in the overlap."""
+
+    block_ends_at: AwareDatetime
+
+
 _APPOINTMENT_COLS = _cols(MyAppointment)
 _TIME_OFF_COLS = _cols(_TimeOff)
+_STRETCH_COLS = _cols(_Stretch)
+_BOOKED_COLS = _cols(_Booked, shop=f"shop:establishment({_cols(TimeOffConflict.Shop)})")
 
 
 def _run_profile_write(query, what: str):
@@ -571,6 +591,21 @@ def save_services(caller: Caller, services: list[SaveService]) -> list[MyService
     return [] if mine is None else mine.service
 
 
+def _held_chair(mine: _MyChairs | None, chair_id: UUID) -> _MyChairs.Chair | None:
+    """The caller's chair with this id, held or waiting, or None when it isn't one of theirs."""
+    held = [] if mine is None else mine.worker_establishment
+    return next((c for c in held if c.id == chair_id and c.ended_at is None), None)
+
+
+def _zone_of(shop: _Shop) -> ZoneInfo:
+    """The shop's time zone. One that can't be resolved is an outage, not a 404."""
+    try:
+        return ZoneInfo(shop.timezone)
+    except ZoneInfoNotFoundError as exc:
+        logger.exception("establishment=%s has unusable timezone %r", shop.id, shop.timezone)
+        raise DatabaseUnavailable("bad timezone") from exc
+
+
 def _day_off(
     day: date, hours: ScheduleDay | None, zone: ZoneInfo, time_off: list[_TimeOff]
 ) -> bool:
@@ -616,19 +651,13 @@ def get_week(caller: Caller, chair_id: UUID, *, now_utc: datetime | None = None)
 
     with user_db(caller.access_token) as db:
         mine = _load_chairs(db, caller)
-        held = [] if mine is None else mine.worker_establishment
-        chair = next((c for c in held if c.id == chair_id and c.ended_at is None), None)
+        chair = _held_chair(mine, chair_id)
         if mine is None or chair is None:
             logger.info("week for a chair the caller doesn't hold: %s", chair_id)
             return None
 
         shop = chair.establishment
-        try:
-            zone = ZoneInfo(shop.timezone)
-        except ZoneInfoNotFoundError as exc:
-            logger.exception("establishment=%s has unusable timezone %r", shop.id, shop.timezone)
-            raise DatabaseUnavailable("bad timezone") from exc
-
+        zone = _zone_of(shop)
         today = now_utc.astimezone(zone).date()
         lo = _minute_to_instant(today, 0, zone).isoformat()
         hi = _minute_to_instant(today + timedelta(days=_WEEK_DAYS), 0, zone).isoformat()
@@ -754,3 +783,234 @@ def answer_request(
         logger.info("%s for a booking already %s: %s", answer, answered.status, appointment_id)
         raise RequestClosed(answered.status)
     return answered
+
+
+def _overlaps(booking: _Booked, stretch: _Stretch) -> bool:
+    """The booking, buffer included, runs into the stretch. Same test as _iter_day_slots."""
+    return booking.starts_at < stretch.ends and booking.block_ends_at > stretch.starts
+
+
+def _local_days(stretch: _Stretch, zone: ZoneInfo) -> tuple[date, date]:
+    """The first and last day a stretch touches on the shop's calendar. ends is exclusive."""
+    last = stretch.ends - timedelta(microseconds=1)
+    return stretch.starts.astimezone(zone).date(), last.astimezone(zone).date()
+
+
+def _instants(stretch: SaveStretch, zone: ZoneInfo) -> tuple[datetime, datetime]:
+    """The midnights that open the stretch's first day and close its last."""
+    return (
+        _minute_to_instant(stretch.first_day, 0, zone),
+        _minute_to_instant(stretch.last_day + timedelta(days=1), 0, zone),
+    )
+
+
+def _time_off_row(worker_id: str, span: tuple[datetime, datetime]) -> dict:
+    starts, ends = span
+    return {"worker_id": worker_id, "starts": starts.isoformat(), "ends": ends.isoformat()}
+
+
+def _load_stretches(db, worker_id: UUID, now_utc: datetime) -> list[_Stretch]:
+    """The caller's time off that hasn't ended, soonest first."""
+    resp = _run_as_user(
+        db.table("worker_time_off")
+        .select(_STRETCH_COLS)
+        .eq("worker_id", str(worker_id))
+        .gt("ends", now_utc.isoformat())
+        .order("starts"),
+        "upcoming time off",
+    )
+    try:
+        return [_Stretch.model_validate(r) for r in resp.data]
+    except ValidationError as exc:
+        logger.exception("time off rows failed validation")
+        raise DatabaseUnavailable("schema mismatch") from exc
+
+
+def _load_bookings(
+    db, worker_id: UUID, stretches: list[_Stretch], now_utc: datetime
+) -> list[_Booked]:
+    """
+    The caller's bookings at every shop that fall in these stretches and haven't
+    ended, soonest first. Only PENDING and ACCEPTED hold a slot, so these are the
+    bookings the booking flow would no longer offer.
+    """
+    if not stretches:
+        return []
+    # The worker_id filter matters: appointment_read also shows an owner every
+    # booking at their shop.
+    resp = _run_as_user(
+        db.table("appointment")
+        .select(_BOOKED_COLS)
+        .eq("worker_id", str(worker_id))
+        .in_("status", [Status.PENDING, Status.ACCEPTED])
+        .lt("starts_at", max(s.ends for s in stretches).isoformat())
+        .gt("block_ends_at", max(min(s.starts for s in stretches), now_utc).isoformat())
+        .order("starts_at"),
+        "bookings in time off",
+    )
+    try:
+        booked = [_Booked.model_validate(r) for r in resp.data]
+    except ValidationError as exc:
+        logger.exception("bookings in time off failed validation")
+        raise DatabaseUnavailable("schema mismatch") from exc
+    # The query also spans the gaps between stretches.
+    return [b for b in booked if any(_overlaps(b, s) for s in stretches)]
+
+
+def _to_time_off(
+    shop: _Shop, zone: ZoneInfo, now_utc: datetime, stretches: list[_Stretch], booked: list[_Booked]
+) -> MyTimeOff:
+    listed = []
+    for s in stretches:
+        first, last = _local_days(s, zone)
+        count = sum(1 for b in booked if _overlaps(b, s))
+        listed.append(MyStretch(id=s.id, first_day=first, last_day=last, bookings=count))
+    return MyTimeOff(
+        timezone=shop.timezone,
+        today=now_utc.astimezone(zone).date(),
+        stretches=listed,
+        conflicts=[
+            TimeOffConflict.model_validate(b.model_dump(exclude={"block_ends_at"})) for b in booked
+        ],
+    )
+
+
+def get_time_off(
+    caller: Caller, chair_id: UUID, *, now_utc: datetime | None = None
+) -> MyTimeOff | None:
+    """
+    The caller's time off still to come, read as the caller, with the days on
+    the calendar of one of their chairs' shops. Time off belongs to the person,
+    not the chair: it blocks every shop they work at, and it is checked against
+    their bookings at all of them.
+
+    Args:
+        - caller (Caller): from verify_token
+        - chair_id (UUID): a chair the caller holds or is waiting on, whose shop's
+          calendar the days are on
+        - now_utc (datetime | None): override for the current instant
+
+    Returns:
+        - MyTimeOff: stretches that haven't ended, soonest first, and the bookings
+          they overlap
+        - None: chair_id isn't one of the caller's current chairs. Route turns this
+          into a 404.
+
+    Raises:
+        - NotSignedIn: PostgREST rejected the token
+        - DatabaseUnavailable: a query failed, a row didn't match its model, or the
+          shop's time zone can't be resolved
+    """
+    if now_utc is None:
+        now_utc = datetime.now(UTC)
+
+    with user_db(caller.access_token) as db:
+        mine = _load_chairs(db, caller)
+        chair = _held_chair(mine, chair_id)
+        if mine is None or chair is None:
+            logger.info("time off at a chair the caller doesn't hold: %s", chair_id)
+            return None
+        zone = _zone_of(chair.establishment)
+        stretches = _load_stretches(db, mine.id, now_utc)
+        booked = _load_bookings(db, mine.id, stretches, now_utc)
+
+    return _to_time_off(chair.establishment, zone, now_utc, stretches, booked)
+
+
+def save_time_off(
+    caller: Caller,
+    chair_id: UUID,
+    stretches: list[SaveStretch],
+    *,
+    now_utc: datetime | None = None,
+) -> MyTimeOff | None:
+    """
+    Makes the posted stretches the caller's time off still to come, with the
+    days on the calendar of one of their chairs' shops. A stretch that hasn't
+    ended and is left out is removed; one that has ended is never touched. A
+    stretch whose days didn't change isn't rewritten, so it keeps the instants
+    it was saved with, and a new stretch that repeats another is skipped.
+
+    Time off is saved whatever it overlaps. The bookings that fall in it come
+    back with it, for the worker to sort out with their clients.
+
+    The inserts run last, so a failed save that the worker retries never adds
+    the same stretch twice.
+
+    Args:
+        - caller (Caller): from verify_token
+        - chair_id (UUID): a chair the caller holds or is waiting on, whose shop's
+          calendar the days are on
+        - stretches (list[SaveStretch]): the time off, already checked by SaveTimeOff
+        - now_utc (datetime | None): override for the current instant
+
+    Returns:
+        - MyTimeOff: the time off as saved, and the bookings it overlaps
+        - None: chair_id isn't one of the caller's current chairs. Route turns this
+          into a 404.
+
+    Raises:
+        - NotSignedIn: PostgREST rejected the token
+        - DatabaseUnavailable: a query failed, a row didn't match its model, or the
+          shop's time zone can't be resolved
+    """
+    if now_utc is None:
+        now_utc = datetime.now(UTC)
+
+    with user_db(caller.access_token) as db:
+        mine = _load_chairs(db, caller)
+        chair = _held_chair(mine, chair_id)
+        if mine is None or chair is None:
+            logger.info("time off at a chair the caller doesn't hold: %s", chair_id)
+            return None
+        zone = _zone_of(chair.establishment)
+        me = str(mine.id)
+
+        saved = {s.id: s for s in _load_stretches(db, mine.id, now_utc)}
+        unchanged = {
+            s.id
+            for s in stretches
+            if s.id in saved and (s.first_day, s.last_day) == _local_days(saved[s.id], zone)
+        }
+        changed = [s for s in stretches if s.id in saved and s.id not in unchanged]
+        dropped = sorted(str(i) for i in saved.keys() - {s.id for s in stretches})
+
+        # Every span that stays, so a new stretch that repeats one is skipped.
+        taken = {(saved[i].starts, saved[i].ends) for i in unchanged}
+        taken |= {_instants(s, zone) for s in changed}
+        added: list[dict] = []
+        for s in stretches:
+            if s.id in saved:
+                continue
+            span = _instants(s, zone)
+            if span in taken:
+                continue
+            taken.add(span)
+            added.append(_time_off_row(me, span))
+        kept = [_time_off_row(me, _instants(s, zone)) | {"id": str(s.id)} for s in changed]
+
+        if dropped:
+            _run_as_user(
+                db.table("worker_time_off")
+                .delete(returning=ReturnMethod.minimal)
+                .eq("worker_id", me)
+                .in_("id", dropped),
+                "remove time off",
+            )
+        if kept:
+            _run_as_user(
+                db.table("worker_time_off").upsert(
+                    kept, on_conflict="id", returning=ReturnMethod.minimal
+                ),
+                "change time off",
+            )
+        if added:
+            _run_as_user(
+                db.table("worker_time_off").insert(added, returning=ReturnMethod.minimal),
+                "add time off",
+            )
+
+        upcoming = _load_stretches(db, mine.id, now_utc)
+        booked = _load_bookings(db, mine.id, upcoming, now_utc)
+
+    return _to_time_off(chair.establishment, zone, now_utc, upcoming, booked)

@@ -12,7 +12,7 @@ export const ANSWER_FORM = "answer-request";
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 // Whole class strings, so Tailwind finds each one.
-const STATUS: Record<AppointmentStatus, { label: string; chip: string }> = {
+export const STATUS: Record<AppointmentStatus, { label: string; chip: string }> = {
   PENDING: { label: "Pending", chip: "bg-status-pending-tint text-status-pending" },
   ACCEPTED: { label: "Accepted", chip: "bg-status-accepted-tint text-status-accepted" },
   REJECTED: { label: "Rejected", chip: "bg-status-rejected-tint text-status-rejected" },
