@@ -2,21 +2,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Me } from "~/models/auth";
 import DashboardRoute from "~/routes/dashboard";
 import LogInRoute, { action as loginAction } from "~/routes/login";
 import { getSession } from "~/sessions.server";
 
 const API_URL = "http://api.test";
 const TOKENS = { access_token: "access", refresh_token: "refresh", expires_at: 1_800_000_000 };
-const ME: Me = {
-  first_name: "Ana",
-  last_name: "Lopez",
-  email: "ana@example.com",
-  has_worker_profile: false,
-  has_shop: false,
-  is_live: true,
-};
 
 beforeEach(() => {
   vi.stubEnv("SESSION_SECRET", "test-secret");
@@ -41,7 +32,11 @@ function stubApi(status: number, body?: unknown) {
 function renderLogin() {
   const Stub = createRoutesStub([
     { path: "/login", Component: LogInRoute, action: loginAction },
-    { path: "/dashboard", Component: DashboardRoute, loader: () => ({ me: ME, editing: null }) },
+    {
+      path: "/dashboard",
+      Component: DashboardRoute,
+      loader: () => ({ editing: null, chairs: [], chair: null, week: null }),
+    },
   ]);
   render(<Stub initialEntries={["/login"]} />);
   return userEvent.setup();
@@ -58,7 +53,7 @@ describe("login action", () => {
     const fetchMock = stubApi(200, TOKENS);
     await logIn(renderLogin());
 
-    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Upcoming appointments" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${API_URL}/auth/login`);

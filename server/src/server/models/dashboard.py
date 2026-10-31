@@ -3,10 +3,13 @@ Bodies and responses for the worker dashboard. Everything here is the caller's
 own data, read and written as the caller so RLS applies.
 """
 
+from datetime import date
 from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
+
+from server.models.public_models import Status
 
 # Same shape as the slug checks on worker_profile and establishment.
 SLUG_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
@@ -149,3 +152,36 @@ class MyService(BaseModel):
     price_cents: int
     duration_min: int
     buffer_after_min: int
+
+
+class MyAppointment(BaseModel):
+    """
+    One booking at the caller's chair, as the dashboard lists it. The fields are
+    also the select list, so the client's phone, email, and notes stay unread.
+    """
+
+    id: UUID
+    starts_at: AwareDatetime
+    duration_min: int
+    client_name: str
+    service_title: str
+    price_cents: int
+    status: Status
+
+
+class MyDay(BaseModel):
+    """
+    One day at a chair, in the shop's calendar. day_off is true when the chair has
+    no hours that weekday, or the caller's time off covers all of them.
+    """
+
+    day: date
+    day_off: bool
+    appointments: list[MyAppointment]
+
+
+class MyWeek(BaseModel):
+    """The caller's next seven days at one chair, today first, in the shop's time zone."""
+
+    timezone: str
+    days: list[MyDay]

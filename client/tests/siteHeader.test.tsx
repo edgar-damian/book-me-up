@@ -109,6 +109,21 @@ describe("site header", () => {
     expect(screen.getAllByRole("button", { name: "Log out" })).toHaveLength(2);
   });
 
+  it("keeps the shop the dashboard is showing on a worker's links", () => {
+    const chair = "0000000c-0000-4000-8000-000000000002";
+    const Stub = createRoutesStub([{ path: "/dashboard", Component: () => <SiteHeader shop /> }]);
+    render(<Stub initialEntries={[`/dashboard?chair=${chair}`]} />);
+
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    for (const [name, edit] of [
+      ["Hours", "schedule"],
+      ["Services", "services"],
+      ["Profile", "profile"],
+    ]) {
+      expect(within(nav).getByRole("link", { name })).toHaveAttribute("href", `/dashboard?edit=${edit}&chair=${chair}`);
+    }
+  });
+
   it("lists the same links and Log out in a worker's menu", async () => {
     const user = renderHeader({ shop: true });
     await user.click(menuButton());

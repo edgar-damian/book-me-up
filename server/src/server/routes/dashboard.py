@@ -12,6 +12,7 @@ from server.models.dashboard import (
     JoinShop,
     MyChair,
     MyService,
+    MyWeek,
     MyWorkerProfile,
     SaveSchedule,
     SaveServices,
@@ -28,6 +29,7 @@ from server.supabase.dashboard import (
     get_chairs,
     get_profile,
     get_services,
+    get_week,
     request_chair,
     save_profile,
     save_schedule,
@@ -177,6 +179,34 @@ def write_schedule(
     if days is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such chair")
     return days
+
+
+@router.get(
+    "/chairs/{chair_id}/appointments",
+    response_model=MyWeek,
+    responses={
+        401: {"description": "Missing, invalid, or expired access token"},
+        404: {"description": "Not one of the caller's current chairs"},
+    },
+)
+def read_week(chair_id: UUID, caller: Annotated[Caller, Depends(current_user)]):
+    """
+    The caller's next seven days at one of their chairs, in the shop's time zone,
+    with their bookings and which days are off.
+    """
+    try:
+        week = get_week(caller, chair_id)
+    except NotSignedIn:
+        raise _not_signed_in()
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+    if week is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such chair")
+    return week
 
 
 @router.get(

@@ -1,7 +1,8 @@
 import { useId, useLayoutEffect, useRef } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { Spinner } from "~/widgets/kit";
 import { STEPS } from "~/widgets/Dashboard/onboarding";
+import { ShopSwitcher } from "~/widgets/Dashboard/shopSwitcher";
 import { PROFILE_FORM, WorkerProfileForm } from "~/widgets/Dashboard/workerProfile";
 import { HOURS_FORM, WorkerHoursForm } from "~/widgets/Dashboard/schedule";
 import { SERVICES_FORM, ServicesForm } from "~/widgets/Dashboard/services";
@@ -38,43 +39,21 @@ const BUTTON =
   "inline-flex min-h-11 w-full items-center justify-center rounded-md px-4 py-2 text-button " +
   "transition-colors duration-120 ease-standard disabled:pointer-events-none disabled:opacity-50";
 
-const SHOP =
-  "inline-flex min-h-11 items-center rounded-md border bg-surface px-3 text-body-sm " +
-  "transition-colors duration-120 ease-standard";
-
-/** A link per shop, so a worker at two shops can set the hours at each. */
-function ShopSwitcher({ chairs, chair }: { chairs: MyChair[]; chair: MyChair }) {
-  return (
-    <nav aria-label="Shops" className="mb-4">
-      <ul className="flex flex-wrap gap-2">
-        {chairs.map((c) => (
-          <li key={c.id}>
-            <Link
-              to={`?edit=schedule&chair=${c.id}`}
-              replace
-              preventScrollReset
-              aria-current={c.id === chair.id ? "true" : undefined}
-              className={`${SHOP} ${
-                c.id === chair.id
-                  ? "border-primary text-primary-text"
-                  : "border-border-input text-ink hover:bg-hover-wash active:bg-press-wash"
-              }`}
-            >
-              {c.shop.name}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
 function EditBody({ editing, error }: { editing: Editing; error: string | null }) {
   if (editing.edit === "profile") return <WorkerProfileForm profile={editing.profile} error={error} />;
   if (editing.edit === "services") return <ServicesForm services={editing.services} error={error} />;
   return (
     <>
-      {editing.chairs.length > 1 && <ShopSwitcher chairs={editing.chairs} chair={editing.chair} />}
+      {/* A worker at two shops can set the hours at each. */}
+      {editing.chairs.length > 1 && (
+        <ShopSwitcher
+          chairs={editing.chairs}
+          chair={editing.chair}
+          to={(c) => `?edit=schedule&chair=${c.id}`}
+          replace
+          className="mb-4"
+        />
+      )}
       {/* Keyed by chair, so another shop's form starts from that shop's hours. */}
       <WorkerHoursForm key={editing.chair.id} chair={editing.chair} error={error} />
     </>
@@ -93,6 +72,7 @@ export function EditDialog({
   busy: boolean;
 }) {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -115,11 +95,15 @@ export function EditDialog({
     };
   }, []);
 
-  // Shuts at once instead of waiting on the dashboard's loader.
+  // Shuts at once instead of waiting on the dashboard's loader, and keeps the
+  // shop ?chair= names.
   function close() {
     if (busy) return;
     dialogRef.current?.close();
-    navigate("/dashboard", { preventScrollReset: true });
+    const chair = params.get("chair");
+    navigate(chair ? `/dashboard?chair=${encodeURIComponent(chair)}` : "/dashboard", {
+      preventScrollReset: true,
+    });
   }
 
   // Only a press that starts and ends on the scrim closes the dialog: a text

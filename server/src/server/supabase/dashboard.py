@@ -4,22 +4,35 @@ caller, so RLS decides what it can read and write. Nothing here uses admin_db.
 """
 
 import logging
+from collections import defaultdict
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from postgrest import APIError, ReturnMethod
 from pydantic import AwareDatetime, BaseModel, ValidationError
 
 from server.models.dashboard import (
+    MyAppointment,
     MyChair,
+    MyDay,
     MyService,
+    MyWeek,
     MyWorkerProfile,
     SaveService,
     SaveWorkerProfile,
     ScheduleDay,
 )
+from server.models.public_models import Status
 from server.supabase.auth import Caller
-from server.supabase.booking import _NAME_CAP, _clean, _clean_email
+from server.supabase.booking import (
+    _NAME_CAP,
+    _clean,
+    _clean_email,
+    _minute_to_instant,
+    _open_intervals,
+)
 from server.supabase.sb_function import (
     _TOKEN_REJECTED,
     DatabaseUnavailable,
@@ -64,6 +77,7 @@ class _Shop(BaseModel):
     id: UUID
     slug: str
     name: str
+    timezone: str
 
 
 class _MyChairs(BaseModel):
@@ -116,6 +130,19 @@ class _MyServices(BaseModel):
 
 
 _MY_SERVICES_COLS = _cols(_MyServices, service=f"service({_cols(MyService)})")
+
+_WEEK_DAYS = 7
+
+
+class _TimeOff(BaseModel):
+    """One stretch of the caller's time off. It blocks every shop they work at."""
+
+    starts: AwareDatetime
+    ends: AwareDatetime
+
+
+_APPOINTMENT_COLS = _cols(MyAppointment)
+_TIME_OFF_COLS = _cols(_TimeOff)
 
 
 def _run_profile_write(query, what: str):
@@ -537,3 +564,113 @@ def save_services(caller: Caller, services: list[SaveService]) -> list[MyService
         mine = _load_services(db, caller)
 
     return [] if mine is None else mine.service
+
+
+def _day_off(
+    day: date, hours: ScheduleDay | None, zone: ZoneInfo, time_off: list[_TimeOff]
+) -> bool:
+    """
+    True when the chair has no hours on this day, or each open stretch of them
+    falls inside one stretch of time off. Partial time off leaves a working day.
+    """
+    if hours is None:
+        return True
+    return all(
+        any(
+            off.starts <= _minute_to_instant(day, lo, zone)
+            and off.ends >= _minute_to_instant(day, hi, zone)
+            for off in time_off
+        )
+        for lo, hi in _open_intervals(hours)
+    )
+
+
+def get_week(caller: Caller, chair_id: UUID, *, now_utc: datetime | None = None) -> MyWeek | None:
+    """
+    The caller's next seven days at one of their chairs, today first, read as the
+    caller. Days follow the shop's own calendar, so a worker at shops in two time
+    zones can have a different today at each. Cancelled bookings are left out.
+
+    Args:
+        - caller (Caller): from verify_token
+        - chair_id (UUID): a chair the caller holds or is waiting on
+        - now_utc (datetime | None): override for the current instant
+
+    Returns:
+        - MyWeek: seven days, each with its bookings in start order
+        - None: chair_id isn't one of the caller's current chairs. Route turns this
+          into a 404.
+
+    Raises:
+        - NotSignedIn: PostgREST rejected the token
+        - DatabaseUnavailable: a query failed, a row didn't match its model, or the
+          shop's time zone can't be resolved
+    """
+    if now_utc is None:
+        now_utc = datetime.now(UTC)
+
+    with user_db(caller.access_token) as db:
+        mine = _load_chairs(db, caller)
+        held = [] if mine is None else mine.worker_establishment
+        chair = next((c for c in held if c.id == chair_id and c.ended_at is None), None)
+        if mine is None or chair is None:
+            logger.info("week for a chair the caller doesn't hold: %s", chair_id)
+            return None
+
+        shop = chair.establishment
+        try:
+            zone = ZoneInfo(shop.timezone)
+        except ZoneInfoNotFoundError as exc:
+            logger.exception("establishment=%s has unusable timezone %r", shop.id, shop.timezone)
+            raise DatabaseUnavailable("bad timezone") from exc
+
+        today = now_utc.astimezone(zone).date()
+        lo = _minute_to_instant(today, 0, zone).isoformat()
+        hi = _minute_to_instant(today + timedelta(days=_WEEK_DAYS), 0, zone).isoformat()
+
+        # The worker_id filter matters: appointment_read also shows an owner every
+        # booking at their shop.
+        booked = _run_as_user(
+            db.table("appointment")
+            .select(_APPOINTMENT_COLS)
+            .eq("worker_id", str(mine.id))
+            .eq("establishment_id", str(shop.id))
+            .gte("starts_at", lo)
+            .lt("starts_at", hi)
+            .neq("status", Status.CANCELLED)
+            .order("starts_at"),
+            "upcoming appointments",
+        )
+        away = _run_as_user(
+            db.table("worker_time_off")
+            .select(_TIME_OFF_COLS)
+            .eq("worker_id", str(mine.id))
+            .lt("starts", hi)
+            .gt("ends", lo),
+            "time off",
+        )
+
+    try:
+        appointments = [MyAppointment.model_validate(r) for r in booked.data]
+        time_off = [_TimeOff.model_validate(r) for r in away.data]
+    except ValidationError as exc:
+        logger.exception("week rows failed validation")
+        raise DatabaseUnavailable("schema mismatch") from exc
+
+    by_day: dict[date, list[MyAppointment]] = defaultdict(list)
+    for appt in appointments:
+        by_day[appt.starts_at.astimezone(zone).date()].append(appt)
+    hours = {d.day_of_week: d for d in chair.worker_schedule_day}
+
+    days = [today + timedelta(days=i) for i in range(_WEEK_DAYS)]
+    return MyWeek(
+        timezone=shop.timezone,
+        days=[
+            MyDay(
+                day=day,
+                day_off=_day_off(day, hours.get((day.weekday() + 1) % 7), zone, time_off),
+                appointments=by_day[day],
+            )
+            for day in days
+        ],
+    )
