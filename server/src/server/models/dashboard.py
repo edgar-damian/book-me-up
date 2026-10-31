@@ -4,6 +4,7 @@ own data, read and written as the caller so RLS applies.
 """
 
 from datetime import date
+from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
@@ -185,3 +186,16 @@ class MyWeek(BaseModel):
 
     timezone: str
     days: list[MyDay]
+
+
+class Answer(StrEnum):
+    """How a worker answers a booking request. Narrower than Status on purpose."""
+
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+
+
+class AnswerRequest(BaseModel):
+    """What a request's Accept or Reject posts. Any other status is a 422."""
+
+    status: Answer

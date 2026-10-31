@@ -1,8 +1,13 @@
+import { useState } from "react";
+import { useFetcher } from "react-router";
 import type { AppointmentStatus, MyAppointment, MyDay, MyWeek } from "~/models/dashboard";
 import { LONG_DAY, TIME, fmtDay, fmtInstant } from "~/widgets/BookingFlow/shared";
+import { Spinner } from "~/widgets/kit";
 
 /* The worker's next seven days at one shop, a card per day. Every time is put on
    the shop's clock, so the server render and hydration agree wherever each runs. */
+
+export const ANSWER_FORM = "answer-request";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -21,21 +26,37 @@ const TIME_COL = "md:w-28 md:shrink-0";
 const WHO_COL = "md:min-w-0 md:flex-1 md:pr-4";
 const PRICE_COL = "md:w-24 md:shrink-0";
 const STATUS_COL = "md:w-28 md:shrink-0";
-const ACTIONS_COL = "md:w-48 md:shrink-0";
+const ACTIONS_COL = "md:w-60 md:shrink-0";
 
 const BUTTON =
   "inline-flex min-h-11 items-center justify-center rounded-md px-4 text-button " +
-  "transition-colors duration-120 ease-standard";
+  "transition-colors duration-120 ease-standard disabled:pointer-events-none disabled:opacity-50";
 const ACCEPT = `${BUTTON} bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active`;
 const REJECT = `${BUTTON} border border-border-input bg-surface text-ink hover:bg-hover-wash active:bg-press-wash`;
+const CONFIRM = `${BUTTON} bg-danger text-on-danger hover:bg-danger-hover active:bg-danger-active`;
+
+/** A button's text, kept in place but hidden while a spinner stands in, so the button keeps its width. */
+function Label({ text, sending, status }: { text: string; sending: boolean; status: string }) {
+  return (
+    <>
+      <span className={sending ? "invisible" : undefined}>{text}</span>
+      {sending && <Spinner label={status} className="absolute size-4" />}
+    </>
+  );
+}
 
 /** One booking: a two-column block on a phone, one line of the table from md up. */
 function Booking({ appointment: a, timezone }: { appointment: MyAppointment; timezone: string }) {
   const time = fmtInstant(a.starts_at, timezone, TIME);
   const { label, chip } = STATUS[a.status];
+  // Held by the row, not its buttons, so a refusal still shows once the row reloads with another status.
+  const answer = useFetcher<{ error: string | null }>();
+  const sending = answer.state === "idle" ? null : answer.formData?.get("status");
+  // "kept" is the first pair again, with focus back on Reject.
+  const [step, setStep] = useState<"answer" | "confirm" | "kept">("answer");
 
   return (
-    <li className="grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-4 md:flex md:items-center md:gap-0 md:px-6 md:py-3">
+    <li className="grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-4 md:flex md:flex-wrap md:items-center md:gap-0 md:px-6 md:py-3">
       <div className={`col-start-1 row-start-1 ${TIME_COL}`}>
         <p className="text-body-sm font-medium text-ink tabular-nums">{time}</p>
         <p className="text-caption text-ink-muted">{a.duration_min} min</p>
@@ -50,18 +71,73 @@ function Booking({ appointment: a, timezone }: { appointment: MyAppointment; tim
       <div className={`col-start-2 row-start-1 justify-self-end ${STATUS_COL}`}>
         <span className={`inline-block rounded-sm px-2 py-1 text-eyebrow ${chip}`}>{label}</span>
       </div>
-      {/* Accepting and rejecting have no API yet, so these do nothing. */}
       {a.status === "PENDING" ? (
-        <div className={`col-span-2 grid grid-cols-2 gap-2 md:flex md:justify-end ${ACTIONS_COL}`}>
-          <button type="button" aria-label={`Accept ${a.client_name} at ${time}`} className={ACCEPT}>
-            Accept
-          </button>
-          <button type="button" aria-label={`Reject ${a.client_name} at ${time}`} className={REJECT}>
-            Reject
-          </button>
-        </div>
+        <answer.Form
+          method="post"
+          className={`col-span-2 grid grid-cols-2 gap-2 md:flex md:justify-end ${ACTIONS_COL}`}
+        >
+          <input type="hidden" name="intent" value={ANSWER_FORM} />
+          <input type="hidden" name="appointment" value={a.id} />
+          {/* Keyed, so each pair mounts fresh and autoFocus lands; nothing is focused on the first render. */}
+          {step === "confirm" ? (
+            <>
+              <button
+                key="keep"
+                type="button"
+                autoFocus
+                disabled={!!sending}
+                onClick={() => setStep("kept")}
+                aria-label={`Keep request from ${a.client_name} at ${time}`}
+                className={REJECT}
+              >
+                Keep
+              </button>
+              <button
+                key="reject-request"
+                type="submit"
+                name="status"
+                value="REJECTED"
+                aria-busy={sending === "REJECTED" || undefined}
+                aria-label={`Reject request from ${a.client_name} at ${time}`}
+                className={`relative ${CONFIRM} ${sending ? "pointer-events-none" : ""}`}
+              >
+                <Label text="Reject request" sending={sending === "REJECTED"} status="Rejecting…" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                key="accept"
+                type="submit"
+                name="status"
+                value="ACCEPTED"
+                aria-busy={sending === "ACCEPTED" || undefined}
+                aria-label={`Accept ${a.client_name} at ${time}`}
+                className={`relative ${ACCEPT} ${sending ? "pointer-events-none" : ""}`}
+              >
+                <Label text="Accept" sending={sending === "ACCEPTED"} status="Accepting…" />
+              </button>
+              <button
+                key="reject"
+                type="button"
+                autoFocus={step === "kept"}
+                disabled={!!sending}
+                onClick={() => setStep("confirm")}
+                aria-label={`Reject ${a.client_name} at ${time}`}
+                className={REJECT}
+              >
+                Reject
+              </button>
+            </>
+          )}
+        </answer.Form>
       ) : (
         <div className={`hidden md:block ${ACTIONS_COL}`} />
+      )}
+      {answer.data?.error && (
+        <p role="alert" className="col-span-2 text-body-sm text-danger-text md:basis-full md:pt-2 md:text-right">
+          {answer.data.error}
+        </p>
       )}
     </li>
   );

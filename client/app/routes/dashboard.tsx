@@ -4,7 +4,8 @@ import { Dashboard } from "../pages/Dashboard";
 import type { Me } from "~/models/auth";
 import type { MyChair, MyWeek } from "~/models/dashboard";
 import { authorize, toLogin } from "~/auth.server";
-import { apiGet, loadSetup, saveProfile, saveSchedule, saveServices } from "~/dashboard.server";
+import { answerRequest, apiGet, loadSetup, saveProfile, saveSchedule, saveServices } from "~/dashboard.server";
+import { ANSWER_FORM } from "~/widgets/Dashboard/appointments";
 import { STEPS } from "~/widgets/Dashboard/onboarding";
 import type { Editing } from "~/widgets/Dashboard/editDialog";
 import { PROFILE_FORM } from "~/widgets/Dashboard/workerProfile";
@@ -86,6 +87,13 @@ export async function action({ request }: Route.ActionArgs) {
   const headers = setCookie ? { "Set-Cookie": setCookie } : undefined;
 
   const fd = await request.formData();
+  // An answer posts from its row and leaves the page where it is. A refusal goes back
+  // without an error status, so the week still reloads and shows what became of the booking.
+  if (fd.get("intent") === ANSWER_FORM) {
+    const refused = await answerRequest(request, token, fd);
+    return data({ error: refused?.error ?? null }, { headers });
+  }
+
   const save = saverFor(fd.get("intent"));
   if (!save) throw new Response("Unknown form", { status: 400 });
 

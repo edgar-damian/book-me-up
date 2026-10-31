@@ -14,6 +14,7 @@ from postgrest import APIError, ReturnMethod
 from pydantic import AwareDatetime, BaseModel, ValidationError
 
 from server.models.dashboard import (
+    Answer,
     MyAppointment,
     MyChair,
     MyDay,
@@ -24,7 +25,7 @@ from server.models.dashboard import (
     SaveWorkerProfile,
     ScheduleDay,
 )
-from server.models.public_models import Status
+from server.models.public_models import CancelledBy, Status
 from server.supabase.auth import Caller
 from server.supabase.booking import (
     _NAME_CAP,
@@ -69,6 +70,10 @@ class ProfileMissing(RuntimeError):
 
 class InvalidService(ValueError):
     """A service whose name is blank once tidied. Route turns this into a 422."""
+
+
+class RequestClosed(RuntimeError):
+    """The booking isn't waiting on an answer anymore. Route turns this into a 409."""
 
 
 class _Shop(BaseModel):
@@ -674,3 +679,78 @@ def get_week(caller: Caller, chair_id: UUID, *, now_utc: datetime | None = None)
             for day in days
         ],
     )
+
+
+def answer_request(
+    caller: Caller, appointment_id: UUID, answer: Answer, *, now_utc: datetime | None = None
+) -> MyAppointment | None:
+    """
+    Accepts or rejects one of the caller's booking requests, as the caller. Only a
+    PENDING booking changes, so an answer from another tab, or the hold sweeper
+    getting there first, is never overwritten. Asking for the status a booking
+    already has changes nothing, so a repeat is safe.
+
+    Args:
+        - caller (Caller): from verify_token
+        - appointment_id (UUID): one of the caller's bookings
+        - answer (Answer): ACCEPTED or REJECTED
+        - now_utc (datetime | None): override for the current instant
+
+    Returns:
+        - MyAppointment: the booking with its answer
+        - None: the caller has no booking with this id. Route turns this into a 404.
+
+    Raises:
+        - RequestClosed: the booking isn't PENDING, and has another status
+        - NotSignedIn: PostgREST rejected the token
+        - DatabaseUnavailable: a query failed, or the row didn't match MyAppointment
+    """
+    if now_utc is None:
+        now_utc = datetime.now(UTC)
+
+    # A hold only stands while PENDING (appointment_hold_only_pending_ck), and a
+    # rejection says who and when (appointment_cancel_fields_ck).
+    changes: dict[str, str | None] = {"status": answer, "hold_expires_at": None}
+    if answer is Answer.REJECTED:
+        changes |= {"cancelled_by": CancelledBy.WORKER, "cancelled_at": now_utc.isoformat()}
+
+    with user_db(caller.access_token) as db:
+        mine = _load_chairs(db, caller)
+        if mine is None:
+            logger.info("answer from a caller with no profile: %s", appointment_id)
+            return None
+
+        # The worker_id filter matters: appointment_worker_write also lets an owner
+        # update every booking at their shop.
+        resp = _run_as_user(
+            db.table("appointment")
+            .update(changes)
+            .eq("id", str(appointment_id))
+            .eq("worker_id", str(mine.id))
+            .eq("status", Status.PENDING)
+            .select(_APPOINTMENT_COLS),
+            "answer request",
+        )
+        # Nothing matched, so the booking isn't the caller's or isn't PENDING.
+        if not resp.data:
+            resp = _run_as_user(
+                db.table("appointment")
+                .select(_APPOINTMENT_COLS)
+                .eq("id", str(appointment_id))
+                .eq("worker_id", str(mine.id))
+                .limit(1),
+                "answered request",
+            )
+
+    if not resp.data:
+        logger.info("answer for a booking the caller doesn't have: %s", appointment_id)
+        return None
+    try:
+        answered = MyAppointment.model_validate(resp.data[0])
+    except ValidationError as exc:
+        logger.exception("answered booking failed validation")
+        raise DatabaseUnavailable("schema mismatch") from exc
+    if answered.status != answer:
+        logger.info("%s for a booking already %s: %s", answer, answered.status, appointment_id)
+        raise RequestClosed(answered.status)
+    return answered
