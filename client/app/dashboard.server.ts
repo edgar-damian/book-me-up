@@ -1,5 +1,6 @@
 import { toLogin } from "~/auth.server";
 import type {
+  AnswerRequest,
   JoinShop,
   MyChair,
   MyService,
@@ -197,6 +198,28 @@ export async function saveServices(request: Request, token: string, fd: FormData
       { 409: "Set up your profile first" },
       "Could not save your services, please try again",
       "Check your services, then try again",
+    ),
+  };
+}
+
+/**
+ * Sends a request's answer to PUT /dashboard/appointments/{id}/status. Returns
+ * null once answered, or the message to show with the API's status. Throws a
+ * redirect to /login when the token is refused.
+ */
+export async function answerRequest(request: Request, token: string, fd: FormData) {
+  // Anything but ACCEPTED or REJECTED goes as posted, which the API refuses.
+  const body = { status: String(fd.get("status") ?? "") } as AnswerRequest;
+  const appointment = encodeURIComponent(String(fd.get("appointment") ?? ""));
+
+  const res = await apiPut(request, token, `/dashboard/appointments/${appointment}/status`, body);
+  if (res.ok) return null;
+  return {
+    status: res.status,
+    error: await refusal(
+      res,
+      { 409: "This request was already answered" },
+      "Could not send your answer, please try again",
     ),
   };
 }

@@ -3,7 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { createRoutesStub, data, redirect } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "~/models/auth";
-import type { MyAppointment, MyChair, MyDay, MyService, MyWeek, MyWorkerProfile } from "~/models/dashboard";
+import type {
+  AppointmentStatus,
+  MyAppointment,
+  MyChair,
+  MyDay,
+  MyService,
+  MyWeek,
+  MyWorkerProfile,
+} from "~/models/dashboard";
 import DashboardRoute, { action, loader } from "~/routes/dashboard";
 import { commitSession, getSession } from "~/sessions.server";
 import type { Editing } from "~/widgets/Dashboard/editDialog";
@@ -496,6 +504,42 @@ describe("dashboard action", () => {
 
     expect(response.headers.get("Location")).toBe("/login");
   });
+
+  /** What a request's Accept posts from its row. */
+  const ANSWER = { intent: "answer-request", appointment: CHRIS.id, status: "ACCEPTED" };
+  const ANSWER_PATH = `/dashboard/appointments/${CHRIS.id}/status`;
+
+  it.each(["ACCEPTED", "REJECTED"])("PUTs a request's answer of %s as the user, and stays on the page", async (status) => {
+    const fetchMock = stubApi({ [ANSWER_PATH]: { status: 200, body: { ...CHRIS, status } } });
+
+    const result = await post({ ...ANSWER, status });
+
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toMatchObject({ data: { error: null } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${API_URL}${ANSWER_PATH}`);
+    expect(init?.method).toBe("PUT");
+    expect(init?.headers).toEqual({ Authorization: "Bearer access-1", "Content-Type": "application/json" });
+    expect(JSON.parse(String(init?.body))).toEqual({ status });
+  });
+
+  it("hands back a refused answer without an error status, so the week still reloads", async () => {
+    stubApi({ [ANSWER_PATH]: { status: 409 } });
+
+    const result = await post(ANSWER);
+
+    expect(result).toMatchObject({ data: { error: "This request was already answered" } });
+    expect((result as { init?: ResponseInit }).init?.status).toBeUndefined();
+  });
+
+  it("logs the visitor out when the API rejects the token for an answer", async () => {
+    stubApi({ [ANSWER_PATH]: { status: 401 } });
+
+    const response = await thrown(post(ANSWER));
+
+    expect(response.headers.get("Location")).toBe("/login");
+  });
 });
 
 describe("dashboard page", () => {
@@ -518,14 +562,36 @@ describe("dashboard page", () => {
   /**
    * The real route component, with a stand-in action and a stand-in loader that
    * follows the URL: the week is at the shop ?chair= names, else the first joined.
+   * An answer lands in the stand-in's copy of the week unless it's refused, or
+   * hangs, and the action answers it with data the way the real one does.
    */
   function renderPage(
     url = "/dashboard",
-    { chairs = [JOINED], week = WEEK, refusal }: { chairs?: MyChair[]; week?: MyWeek; refusal?: string } = {},
+    {
+      chairs = [JOINED],
+      week = WEEK,
+      refusal,
+      hang = false,
+    }: { chairs?: MyChair[]; week?: MyWeek; refusal?: string; hang?: boolean } = {},
   ) {
     const posted: FormData[] = [];
+    let current = week;
     const pageAction = vi.fn(async ({ request }: { request: Request }) => {
-      posted.push(await request.formData());
+      const form = await request.formData();
+      posted.push(form);
+      if (form.get("intent") === "answer-request") {
+        if (hang) return new Promise<never>(() => {});
+        if (refusal) return { error: refusal };
+        const status = form.get("status") as AppointmentStatus;
+        current = {
+          ...current,
+          days: current.days.map((d) => ({
+            ...d,
+            appointments: d.appointments.map((a) => (a.id === form.get("appointment") ? { ...a, status } : a)),
+          })),
+        };
+        return { error: null };
+      }
       return refusal ? data({ error: refusal }, { status: 409 }) : redirect("/dashboard");
     });
     const Stub = createRoutesStub([
@@ -536,7 +602,7 @@ describe("dashboard page", () => {
           const shops = chairs.filter((c) => c.is_active);
           const named = new URL(request.url).searchParams.get("chair");
           const chair = shops.find((c) => c.id === named) ?? shops.at(0) ?? null;
-          return { editing: editingAt(request.url, chairs), chairs, chair, week: chair && week };
+          return { editing: editingAt(request.url, chairs), chairs, chair, week: chair && current };
         },
         action: pageAction,
       },
@@ -588,20 +654,89 @@ describe("dashboard page", () => {
     expect(within(await card("Monday")).getByText(/^9:30\sAM$/)).toBeInTheDocument();
   });
 
-  it("offers Accept and Reject on requests only, and neither does anything yet", async () => {
-    const { user, posted } = renderPage();
+  it("offers Accept and Reject on requests only", async () => {
+    renderPage();
     const today = await card("Today");
 
-    const accept = within(today).getByRole("button", { name: /^Accept Chris Alvarez at 10:00\sAM$/ });
+    expect(within(today).getByRole("button", { name: /^Accept Chris Alvarez at 10:00\sAM$/ })).toBeInTheDocument();
     expect(within(today).getByRole("button", { name: /^Reject Chris Alvarez at 10:00\sAM$/ })).toBeInTheDocument();
     expect(within(today).getAllByRole("button")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: /^Accept / })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /cancel/i })).not.toBeInTheDocument();
+  });
+
+  it("accepts a request in place, then shows it accepted", async () => {
+    const { user, posted } = renderPage();
+    const today = await card("Today");
+
+    await user.click(within(today).getByRole("button", { name: /^Accept Chris Alvarez/ }));
+
+    await waitFor(() => expect(within(today).queryByRole("button", { name: /Chris Alvarez/ })).not.toBeInTheDocument());
+    expect(posted).toHaveLength(1);
+    expect(Object.fromEntries(posted[0])).toEqual({
+      intent: "answer-request",
+      appointment: CHRIS.id,
+      status: "ACCEPTED",
+    });
+    expect(within(today).getAllByText("Accepted")).toHaveLength(2);
+    expect(screen.getByText(/your response/)).toHaveTextContent("1 request needs your response.");
+  });
+
+  it("asks before rejecting, with focus on Keep, and Keep puts the buttons back", async () => {
+    const { user, posted } = renderPage();
+    const today = await card("Today");
+
+    await user.click(within(today).getByRole("button", { name: /^Reject Chris Alvarez/ }));
+
+    const keep = within(today).getByRole("button", { name: /^Keep request from Chris Alvarez at 10:00\sAM$/ });
+    expect(keep).toHaveFocus();
+    expect(
+      within(today).getByRole("button", { name: /^Reject request from Chris Alvarez at 10:00\sAM$/ }),
+    ).toBeInTheDocument();
+    expect(within(today).queryByRole("button", { name: /^Accept Chris/ })).not.toBeInTheDocument();
+
+    await user.click(keep);
+
+    expect(within(today).getByRole("button", { name: /^Reject Chris Alvarez/ })).toHaveFocus();
+    expect(within(today).getByRole("button", { name: /^Accept Chris Alvarez/ })).toBeInTheDocument();
+    expect(posted).toHaveLength(0);
+  });
+
+  it("rejects a request once confirmed, then shows it rejected", async () => {
+    const { user, posted } = renderPage();
+    const today = await card("Today");
+
+    await user.click(within(today).getByRole("button", { name: /^Reject Chris Alvarez/ }));
+    await user.click(within(today).getByRole("button", { name: /^Reject request from Chris Alvarez/ }));
+
+    await waitFor(() => expect(within(today).queryByRole("button", { name: /Chris Alvarez/ })).not.toBeInTheDocument());
+    expect(posted).toHaveLength(1);
+    expect(posted[0].get("appointment")).toBe(CHRIS.id);
+    expect(posted[0].get("status")).toBe("REJECTED");
+    expect(within(today).getAllByText("Rejected")).toHaveLength(2);
+  });
+
+  it("shows a refused answer on its own row", async () => {
+    const { user } = renderPage("/dashboard", { refusal: "This request was already answered" });
+    const today = await card("Today");
+
+    await user.click(within(today).getByRole("button", { name: /^Accept Chris Alvarez/ }));
+
+    const chris = within(today).getAllByRole("listitem")[1];
+    expect(await within(chris).findByRole("alert")).toHaveTextContent("This request was already answered");
+    expect(within(today).getAllByRole("alert")).toHaveLength(1);
+  });
+
+  it("shows an answer sending, and takes no second answer meanwhile", async () => {
+    const { user } = renderPage("/dashboard", { hang: true });
+    const today = await card("Today");
+    const accept = within(today).getByRole("button", { name: /^Accept Chris Alvarez/ });
 
     await user.click(accept);
 
-    expect(posted).toHaveLength(0);
-    expect(within(today).getByText("Pending")).toBeInTheDocument();
+    expect(await within(accept).findByRole("status", { name: "Accepting…" })).toBeInTheDocument();
+    expect(accept).toHaveAttribute("aria-busy", "true");
+    expect(within(today).getByRole("button", { name: /^Reject Chris Alvarez/ })).toBeDisabled();
   });
 
   it("says when a day has nothing booked yet, and when it's a day off", async () => {

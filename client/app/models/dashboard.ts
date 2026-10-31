@@ -131,3 +131,11 @@ export type MyWeek = {
   timezone: string;
   days: MyDay[];
 };
+
+/**
+ * What a request's Accept or Reject sends to PUT /dashboard/appointments/{id}/status.
+ * The response is the booking as a MyAppointment.
+ */
+export type AnswerRequest = {
+  status: "ACCEPTED" | "REJECTED";
+};

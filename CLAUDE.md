@@ -164,6 +164,8 @@ is constructed**:
 - `InvalidService` → **422**. Dashboard only; a service name with nothing visible left,
   checked before any query runs. Removing a service turns it off (`is_active = false`)
   rather than deleting it, so its appointments keep their history.
+- `RequestClosed` → **409**. Dashboard only; an answer to a booking that is no longer
+  `PENDING` and has a different status from the one asked for.
 
 `_run(query, what)` in `sb_function.py` is the house idiom for reads: it catches `APIError`
 and `httpx.HTTPError`, logs, and re-raises as `DatabaseUnavailable`. `_run_write()` in
@@ -317,7 +319,11 @@ The dashboard works the same way. `?edit=` opens one part of the setup in the ed
 and `?chair=` is the shop whose week is showing (else the first one joined), with every
 time on that shop's clock. The header's worker links, the dialog's close, and the action's
 redirect all carry `?chair=`, so editing a setting never switches shops; a new link back to
-`/dashboard` should carry it too.
+`/dashboard` should carry it too. A request's Accept and Reject post from its row through a
+fetcher, and the action answers them with data rather than a redirect, so the page stays
+put. A refused answer goes back without an error status, because React Router skips
+reloading the loaders after an action status of 400 or more, and the row should show what
+became of the booking.
 
 **All styling goes through the `design-system` skill.** Tokens live in the `@theme` and
 `:root` / `.dark` blocks of `app/app.css`. Never write a raw hex or an arbitrary Tailwind
@@ -438,6 +444,13 @@ to "fix" the duplication.
   function. `holdExpiresAt` is only meaningful while `PENDING` and is cleared on any other
   transition.
 - `PENDING` holds still occupy the slot for conflict purposes.
+- The worker answers a request through `PUT /dashboard/appointments/{id}/status`
+  (`answer_request()`). Accepting clears `holdExpiresAt`; rejecting also sets
+  `cancelledBy = WORKER` and `cancelledAt`, which `appointment_cancel_fields_ck` requires.
+  The update only matches the caller's own `PENDING` rows, so it can't overwrite an answer
+  from another tab or the sweeper, and repeating an answer returns the booking unchanged.
+  `models/dashboard.Answer` is `ACCEPTED | REJECTED` only, narrower than `Status` for the
+  same reason `BookingStatus` is.
 - Client-initiated cancellation is refused inside `WorkerProfile.cancellationCutoffMin` of
   `startsAt`.
 

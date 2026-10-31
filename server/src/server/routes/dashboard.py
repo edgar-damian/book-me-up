@@ -9,7 +9,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from server.models.dashboard import (
+    AnswerRequest,
     JoinShop,
+    MyAppointment,
     MyChair,
     MyService,
     MyWeek,
@@ -25,7 +27,9 @@ from server.supabase.dashboard import (
     InvalidProfile,
     InvalidService,
     ProfileMissing,
+    RequestClosed,
     SlugTaken,
+    answer_request,
     get_chairs,
     get_profile,
     get_services,
@@ -207,6 +211,43 @@ def read_week(chair_id: UUID, caller: Annotated[Caller, Depends(current_user)]):
     if week is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such chair")
     return week
+
+
+@router.put(
+    "/appointments/{appointment_id}/status",
+    response_model=MyAppointment,
+    responses={
+        401: {"description": "Missing, invalid, or expired access token"},
+        404: {"description": "Not one of the caller's bookings"},
+        409: {"description": "The booking isn't waiting on an answer anymore"},
+        422: {"description": "An answer other than ACCEPTED or REJECTED"},
+    },
+)
+def write_answer(
+    appointment_id: UUID, body: AnswerRequest, caller: Annotated[Caller, Depends(current_user)]
+):
+    """
+    Accepts or rejects one of the caller's booking requests. Answering the same way
+    again changes nothing.
+    """
+    try:
+        answered = answer_request(caller, appointment_id, body.status)
+    except RequestClosed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This booking isn't waiting on an answer anymore",
+        )
+    except NotSignedIn:
+        raise _not_signed_in()
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+    if answered is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such booking")
+    return answered
 
 
 @router.get(

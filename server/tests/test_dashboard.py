@@ -15,10 +15,11 @@ import pytest
 from postgrest import APIError, ReturnMethod
 
 from server.main import app
+from server.models.dashboard import Answer
 from server.routes.auth import current_user
 from server.supabase import sb_function
 from server.supabase.auth import Caller
-from server.supabase.dashboard import get_week
+from server.supabase.dashboard import answer_request, get_week
 
 URL = "/dashboard/profile"
 CALLER = Caller(user_id="00000001-0000-4000-8000-000000000005", access_token="access-1")
@@ -242,6 +243,11 @@ def test_malformed_slug_or_phone_is_422_and_never_queries(client, db, change):
             {"days": [{"day_of_week": 1, "start_minute": 540, "end_minute": 1020}]},
         ),
         ("GET", "/dashboard/chairs/0000000c-0000-4000-8000-000000000001/appointments", None),
+        (
+            "PUT",
+            "/dashboard/appointments/00000007-0000-4000-8000-000000000001/status",
+            {"status": "ACCEPTED"},
+        ),
         ("GET", "/dashboard/services", None),
         (
             "PUT",
@@ -783,6 +789,147 @@ def test_week_at_a_shop_with_an_unknown_time_zone_is_503(client, db, week):
 
     assert client.get(week_url()).status_code == 503
     week.appointment.select.assert_not_called()
+
+
+APPOINTMENT_ID = "00000007-0000-4000-8000-000000000001"
+ROW_COLS = "id, starts_at, duration_min, client_name, service_title, price_cents, status"
+ROW_KEYS = set(ROW_COLS.split(", "))
+
+
+def answer_url(appointment_id=APPOINTMENT_ID):
+    return f"/dashboard/appointments/{appointment_id}/status"
+
+
+@pytest.fixture
+def answer(db):
+    """
+    The caller's profile, the guarded update an answer runs, and the read that
+    explains an update that matched nothing. Both match nothing unless a test fills them.
+    """
+    db.read.execute.return_value = rows(mine(chair(KRUSTY, is_active=True)))
+    appointment = db.tables["appointment"]
+    pending = appointment.update.return_value.eq.return_value.eq.return_value.eq.return_value
+    updated = pending.select.return_value
+    reread = appointment.select.return_value.eq.return_value.eq.return_value.limit.return_value
+    updated.execute.return_value = rows()
+    reread.execute.return_value = rows()
+    return SimpleNamespace(appointment=appointment, pending=pending, updated=updated, reread=reread)
+
+
+def test_accepting_clears_the_hold_on_the_callers_pending_booking(db, answer):
+    answer.updated.execute.return_value = rows(booking(at_krusty(MON_2, "09:00")))
+
+    found = answer_request(CALLER, UUID(APPOINTMENT_ID), Answer.ACCEPTED, now_utc=NOW)
+
+    assert found.status == "ACCEPTED"
+    assert answer.appointment.update.call_args == call(
+        {"status": "ACCEPTED", "hold_expires_at": None}
+    )
+    by_id = answer.appointment.update.return_value.eq
+    by_worker = by_id.return_value.eq
+    assert by_id.call_args == call("id", APPOINTMENT_ID)
+    assert by_worker.call_args == call("worker_id", WORKER_ID)
+    assert by_worker.return_value.eq.call_args == call("status", "PENDING")
+    assert answer.pending.select.call_args == call(ROW_COLS)
+    answer.appointment.select.assert_not_called()
+
+
+def test_rejecting_also_says_the_worker_did_it_and_when(db, answer):
+    answer.updated.execute.return_value = rows(booking(at_krusty(MON_2, "09:00"), "REJECTED"))
+
+    found = answer_request(CALLER, UUID(APPOINTMENT_ID), Answer.REJECTED, now_utc=NOW)
+
+    assert found.status == "REJECTED"
+    assert answer.appointment.update.call_args == call(
+        {
+            "status": "REJECTED",
+            "hold_expires_at": None,
+            "cancelled_by": "WORKER",
+            "cancelled_at": "2026-10-30T13:00:00+00:00",
+        }
+    )
+
+
+def test_answer_sends_only_what_a_row_shows(client, db, answer):
+    answer.updated.execute.return_value = rows(
+        booking(at_krusty(MON_2, "09:00"), client_phone="+16925552003", client_notes="Meow.")
+    )
+
+    response = client.put(answer_url(), json={"status": "ACCEPTED"})
+
+    assert response.status_code == 200
+    assert set(response.json()) == ROW_KEYS
+    assert response.json()["status"] == "ACCEPTED"
+
+
+@pytest.mark.parametrize(
+    ("now", "asked", "code"),
+    [
+        ("ACCEPTED", "ACCEPTED", 200),
+        ("REJECTED", "REJECTED", 200),
+        ("REJECTED", "ACCEPTED", 409),
+        ("ACCEPTED", "REJECTED", 409),
+        ("CANCELLED", "ACCEPTED", 409),
+    ],
+    ids=[
+        "accepted-again",
+        "rejected-again",
+        "accept-after-reject",
+        "reject-after-accept",
+        "accept-after-cancel",
+    ],
+)
+def test_answering_a_booking_that_isnt_pending_anymore(client, db, answer, now, asked, code):
+    answer.reread.execute.return_value = rows(booking(at_krusty(MON_2, "09:00"), now))
+
+    response = client.put(answer_url(), json={"status": asked})
+
+    assert response.status_code == code
+    by_id = answer.appointment.select.return_value.eq
+    assert answer.appointment.select.call_args == call(ROW_COLS)
+    assert by_id.call_args == call("id", APPOINTMENT_ID)
+    assert by_id.return_value.eq.call_args == call("worker_id", WORKER_ID)
+
+
+def test_answer_for_a_booking_the_caller_doesnt_have_is_404(client, db, answer):
+    assert client.put(answer_url(), json={"status": "ACCEPTED"}).status_code == 404
+
+
+def test_answer_without_a_profile_is_404_and_writes_nothing(client, db, answer):
+    db.read.execute.return_value = rows()
+
+    assert client.put(answer_url(), json={"status": "ACCEPTED"}).status_code == 404
+    answer.appointment.update.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("url", "body"),
+    [
+        (answer_url(), {"status": "PENDING"}),
+        (answer_url(), {"status": "CANCELLED"}),
+        (answer_url(), {}),
+        (answer_url("not-a-booking"), {"status": "ACCEPTED"}),
+    ],
+    ids=["pending", "cancelled", "no-status", "malformed-id"],
+)
+def test_bad_answers_are_422_and_never_query(client, db, url, body):
+    assert client.put(url, json=body).status_code == 422
+    db.factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("outcome", "code"),
+    [
+        ({"side_effect": APIError({"code": "PGRST303", "message": "JWT expired"})}, 401),
+        ({"side_effect": APIError({"code": "23514", "message": "check constraint"})}, 503),
+        ({"return_value": rows({"id": APPOINTMENT_ID})}, 503),
+    ],
+    ids=["token-rejected", "query-failed", "schema-mismatch"],
+)
+def test_answer_failures(client, db, answer, outcome, code):
+    answer.updated.execute.configure_mock(**outcome)
+
+    assert client.put(answer_url(), json={"status": "ACCEPTED"}).status_code == code
 
 
 SKIN_FADE = {
