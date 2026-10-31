@@ -92,14 +92,14 @@ describe("site header", () => {
 
     const nav = screen.getByRole("navigation", { name: "Primary" });
     expect(items(nav)).toEqual(WORKER_LINKS);
-    // Each opens its part of the setup on the dashboard. Time off isn't built yet.
+    // Each opens its part of the setup on the dashboard.
+    expect(within(nav).getByRole("link", { name: "Time off" })).toHaveAttribute("href", "/dashboard?edit=time-off");
     expect(within(nav).getByRole("link", { name: "Hours" })).toHaveAttribute("href", "/dashboard?edit=schedule");
     expect(within(nav).getByRole("link", { name: "Services" })).toHaveAttribute(
       "href",
       "/dashboard?edit=services",
     );
     expect(within(nav).getByRole("link", { name: "Profile" })).toHaveAttribute("href", "/dashboard?edit=profile");
-    expect(within(nav).queryByRole("link", { name: "Time off" })).not.toBeInTheDocument();
     // The wordmark leads back to the dashboard, and no link goes anywhere else.
     expect(screen.getByRole("link", { name: /dashboard/ })).toHaveAttribute("href", "/dashboard");
     for (const link of screen.getAllByRole("link")) {
@@ -116,6 +116,7 @@ describe("site header", () => {
 
     const nav = screen.getByRole("navigation", { name: "Primary" });
     for (const [name, edit] of [
+      ["Time off", "time-off"],
       ["Hours", "schedule"],
       ["Services", "services"],
       ["Profile", "profile"],

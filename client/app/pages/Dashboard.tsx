@@ -5,7 +5,7 @@ import { CompanyFooter } from "~/widgets/companyFooter";
 import { EditDialog, type Editing } from "~/widgets/Dashboard/editDialog";
 import { ShopSwitcher } from "~/widgets/Dashboard/shopSwitcher";
 import { UpcomingWeek } from "~/widgets/Dashboard/appointments";
-import type { MyChair, MyWeek } from "~/models/dashboard";
+import type { MyChair, MyWeek, TimeOffConflict } from "~/models/dashboard";
 
 type Props = {
   /** Every shop the worker works at, or has asked to join. */
@@ -17,9 +17,11 @@ type Props = {
   editing: Editing | null;
   /** Why the last save was refused. */
   error: string | null;
+  /** The bookings that time off just saved falls on. */
+  conflicts: TimeOffConflict[] | null;
 };
 
-export function Dashboard({ chairs, chair, week, editing, error }: Props) {
+export function Dashboard({ chairs, chair, week, editing, error, conflicts }: Props) {
   // formMethod stays "POST" through the redirect that closes the dialog.
   const busy = useNavigation().formMethod === "POST";
   const shops = chairs.filter((c) => c.is_active);
@@ -48,7 +50,7 @@ export function Dashboard({ chairs, chair, week, editing, error }: Props) {
         </section>
       </main>
       <CompanyFooter />
-      {editing && <EditDialog editing={editing} error={error} busy={busy} />}
+      {editing && <EditDialog editing={editing} error={error} conflicts={conflicts} busy={busy} />}
     </div>
   );
 }

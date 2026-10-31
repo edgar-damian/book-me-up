@@ -6,7 +6,8 @@ import { ShopSwitcher } from "~/widgets/Dashboard/shopSwitcher";
 import { PROFILE_FORM, WorkerProfileForm } from "~/widgets/Dashboard/workerProfile";
 import { HOURS_FORM, WorkerHoursForm } from "~/widgets/Dashboard/schedule";
 import { SERVICES_FORM, ServicesForm } from "~/widgets/Dashboard/services";
-import type { MyChair, MyService, SaveWorkerProfile } from "~/models/dashboard";
+import { TIME_OFF_FORM, TimeOffConflicts, TimeOffForm } from "~/widgets/Dashboard/timeOff";
+import type { MyChair, MyService, MyTimeOff, SaveWorkerProfile, TimeOffConflict } from "~/models/dashboard";
 
 /* One part of a worker's setup, reopened from the dashboard: a bottom sheet on a
    phone, a centered card from md up. The forms are the onboarding steps' own,
@@ -23,13 +24,20 @@ export type Editing =
       /** The shop whose hours are open. */
       chair: MyChair;
     }
-  | { edit: "services"; services: MyService[] };
+  | { edit: "services"; services: MyService[] }
+  | {
+      edit: "time-off";
+      /** The shop whose calendar the days are on. */
+      chair: MyChair;
+      timeOff: MyTimeOff;
+    };
 
 // The form each part's Save submits.
 const FORMS: Record<Editing["edit"], string> = {
   profile: PROFILE_FORM,
   schedule: HOURS_FORM,
   services: SERVICES_FORM,
+  "time-off": TIME_OFF_FORM,
 };
 
 // How far the handle has to be pulled down before letting go closes the sheet.
@@ -39,9 +47,24 @@ const BUTTON =
   "inline-flex min-h-11 w-full items-center justify-center rounded-md px-4 py-2 text-button " +
   "transition-colors duration-120 ease-standard disabled:pointer-events-none disabled:opacity-50";
 
-function EditBody({ editing, error }: { editing: Editing; error: string | null }) {
+function EditBody({
+  editing,
+  error,
+  conflicts,
+}: {
+  editing: Editing;
+  error: string | null;
+  conflicts: TimeOffConflict[] | null;
+}) {
   if (editing.edit === "profile") return <WorkerProfileForm profile={editing.profile} error={error} />;
   if (editing.edit === "services") return <ServicesForm services={editing.services} error={error} />;
+  if (editing.edit === "time-off") {
+    return conflicts ? (
+      <TimeOffConflicts conflicts={conflicts} chair={editing.chair} timezone={editing.timeOff.timezone} />
+    ) : (
+      <TimeOffForm chair={editing.chair} timeOff={editing.timeOff} error={error} />
+    );
+  }
   return (
     <>
       {/* A worker at two shops can set the hours at each. */}
@@ -63,11 +86,17 @@ function EditBody({ editing, error }: { editing: Editing; error: string | null }
 export function EditDialog({
   editing,
   error,
+  conflicts,
   busy,
 }: {
   editing: Editing;
   /** Form-level failure from the last save, shown at the end of the form. */
   error: string | null;
+  /**
+   * The bookings that time off just saved falls on. While there are any, the
+   * dialog lists them in place of the form, with Done in place of Cancel and Save.
+   */
+  conflicts: TimeOffConflict[] | null;
   /** True from Save until the redirect that closes the dialog lands. */
   busy: boolean;
 }) {
@@ -79,6 +108,7 @@ export function EditDialog({
   const titleRef = useRef<HTMLHeadingElement>(null);
   const pressedOutside = useRef(false);
   const dragFrom = useRef<number | null>(null);
+  const saved = editing.edit === "time-off" && conflicts?.length ? conflicts : null;
 
   // A layout effect's cleanup runs while the dialog is still in the page, so
   // close() can return focus to whatever opened it. The title takes focus
@@ -168,30 +198,45 @@ export function EditDialog({
             <span className="h-1 w-10 rounded-pill bg-border-input" />
           </div>
           <h2 ref={titleRef} id={titleId} tabIndex={-1} className="mx-6 shrink-0 text-heading-3 text-ink md:mt-6">
-            {STEPS.find((s) => s.key === editing.edit)!.title}
+            {STEPS.find((s) => s.key === editing.edit)?.title ?? "Your time off"}
           </h2>
           <div className="min-h-0 overflow-y-auto p-6">
-            <EditBody editing={editing} error={error} />
+            <EditBody editing={editing} error={error} conflicts={saved} />
           </div>
           <div className="grid shrink-0 grid-cols-2 gap-3 border-t border-hairline px-6 py-4">
-            <button
-              type="button"
-              onClick={close}
-              disabled={busy}
-              className={`${BUTTON} border border-border-input bg-surface text-ink hover:bg-hover-wash active:bg-press-wash`}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              form={FORMS[editing.edit]}
-              aria-busy={busy || undefined}
-              className={`${BUTTON} bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active ${
-                busy ? "pointer-events-none" : ""
-              }`}
-            >
-              {busy ? <Spinner label="Saving…" /> : "Save"}
-            </button>
+            {saved ? (
+              // Keyed, so it mounts fresh instead of taking over Cancel's button, and autoFocus lands.
+              <button
+                key="done"
+                type="button"
+                autoFocus
+                onClick={close}
+                className={`${BUTTON} col-span-2 bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active`}
+              >
+                Done
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={close}
+                  disabled={busy}
+                  className={`${BUTTON} border border-border-input bg-surface text-ink hover:bg-hover-wash active:bg-press-wash`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form={FORMS[editing.edit]}
+                  aria-busy={busy || undefined}
+                  className={`${BUTTON} bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active ${
+                    busy ? "pointer-events-none" : ""
+                  }`}
+                >
+                  {busy ? <Spinner label="Saving…" /> : "Save"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -325,6 +325,13 @@ put. A refused answer goes back without an error status, because React Router sk
 reloading the loaders after an action status of 400 or more, and the row should show what
 became of the booking.
 
+Time off is saved even over bookings. When it falls on some, the action answers with data
+listing them instead of redirecting, so the dialog stays open on that list while the
+loaders reload behind it. Every answer with data carries both `error` and `conflicts`;
+TypeScript folds an object type into a wider one it is assignable to, and the shape with
+conflicts would vanish from `actionData`. The days are whole days on the calendar of the
+shop `?chair=` names, converted on the server, and the time off itself blocks every shop.
+
 **All styling goes through the `design-system` skill.** Tokens live in the `@theme` and
 `:root` / `.dark` blocks of `app/app.css`. Never write a raw hex or an arbitrary Tailwind
 value; if a token seems missing it belongs in `app.css` first. Two traps documented there:

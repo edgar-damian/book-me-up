@@ -11,21 +11,19 @@ const NAV_LINKS = [
   { label: "Free Trial", href: "/#pricing" },
 ];
 
-/** A header link. One without an href is a placeholder for a page not built yet. */
-type NavItem = { label: string; href?: string };
+type NavItem = { label: string; href: string };
 
 // A signed-in worker's own settings, each opened in the dashboard's edit dialog.
-// Time off has no href yet, so it renders as a placeholder link until it exists.
 const SHOP_LINKS: NavItem[] = [
-  { label: "Time off" },
+  { label: "Time off", href: "/dashboard?edit=time-off" },
   { label: "Hours", href: "/dashboard?edit=schedule" },
   { label: "Services", href: "/dashboard?edit=services" },
   { label: "Profile", href: "/dashboard?edit=profile" },
 ];
 
 /** A worker's link goes through Link, so opening a dialog doesn't reload the
- *  dashboard. Company links jump to the landing page's sections, and a
- *  placeholder has no href, so both stay plain anchors. */
+ *  dashboard. Company links jump to the landing page's sections, so they stay
+ *  plain anchors. */
 function HeaderLink({
   link,
   inApp,
@@ -37,7 +35,7 @@ function HeaderLink({
   className: string;
   onClick?: () => void;
 }) {
-  if (inApp && link.href) {
+  if (inApp) {
     return (
       <Link to={link.href} preventScrollReset onClick={onClick} className={className}>
         {link.label}
@@ -143,7 +141,7 @@ export function SiteHeader({ company = false, shop = false }: Props) {
 
   // The shop the dashboard shows rides along, so a dialog opened from here keeps it.
   const shopLinks = chair
-    ? SHOP_LINKS.map((l) => (l.href ? { ...l, href: `${l.href}&chair=${encodeURIComponent(chair)}` } : l))
+    ? SHOP_LINKS.map((l) => ({ ...l, href: `${l.href}&chair=${encodeURIComponent(chair)}` }))
     : SHOP_LINKS;
   const links: NavItem[] | null = company ? NAV_LINKS : shop ? shopLinks : null;
 

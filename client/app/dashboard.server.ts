@@ -4,10 +4,12 @@ import type {
   JoinShop,
   MyChair,
   MyService,
+  MyTimeOff,
   MyWorkerProfile,
   SaveSchedule,
   SaveService,
   SaveServices,
+  SaveTimeOff,
   SaveWorkerProfile,
 } from "~/models/dashboard";
 import { toCents, toMinutes } from "~/widgets/kit";
@@ -198,6 +200,45 @@ export async function saveServices(request: Request, token: string, fd: FormData
       { 409: "Set up your profile first" },
       "Could not save your services, please try again",
       "Check your services, then try again",
+    ),
+  };
+}
+
+/**
+ * Sends the time off form to PUT /dashboard/time-off?chair= as every stretch
+ * still to come, in the order the rows were posted. A new row left blank is
+ * skipped. Returns the bookings that fall in the saved time off, or the message
+ * to show with the API's status. Throws a redirect to /login when the token is
+ * refused.
+ */
+export async function saveTimeOff(request: Request, token: string, fd: FormData) {
+  const text = (name: string) => String(fd.get(name) ?? "");
+  const blank = (key: string) => !text(`id-${key}`) && !text(`first-${key}`) && !text(`last-${key}`);
+  const body: SaveTimeOff = {
+    stretches: fd
+      .getAll("stretch")
+      .map(String)
+      .filter((key) => !blank(key))
+      .map((key) => ({
+        id: text(`id-${key}`) || null,
+        first_day: text(`first-${key}`),
+        last_day: text(`last-${key}`),
+      })),
+  };
+
+  const chair = encodeURIComponent(text("chair"));
+  const res = await apiPut(request, token, `/dashboard/time-off?chair=${chair}`, body);
+  if (res.ok) {
+    const saved: MyTimeOff = await res.json();
+    return { conflicts: saved.conflicts };
+  }
+  return {
+    status: res.status,
+    error: await refusal(
+      res,
+      { 404: "Choose your shop first" },
+      "Could not save your time off, please try again",
+      "Check your dates, then try again",
     ),
   };
 }
