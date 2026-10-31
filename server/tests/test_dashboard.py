@@ -5,8 +5,11 @@ is faked.
 """
 
 from collections import defaultdict
+from datetime import UTC, date, datetime, time, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import pytest
 from postgrest import APIError, ReturnMethod
@@ -15,6 +18,7 @@ from server.main import app
 from server.routes.auth import current_user
 from server.supabase import sb_function
 from server.supabase.auth import Caller
+from server.supabase.dashboard import get_week
 
 URL = "/dashboard/profile"
 CALLER = Caller(user_id="00000001-0000-4000-8000-000000000005", access_token="access-1")
@@ -237,6 +241,7 @@ def test_malformed_slug_or_phone_is_422_and_never_queries(client, db, change):
             "/dashboard/chairs/0000000c-0000-4000-8000-000000000001/schedule",
             {"days": [{"day_of_week": 1, "start_minute": 540, "end_minute": 1020}]},
         ),
+        ("GET", "/dashboard/chairs/0000000c-0000-4000-8000-000000000001/appointments", None),
         ("GET", "/dashboard/services", None),
         (
             "PUT",
@@ -262,11 +267,13 @@ KRUSTY = {
     "id": "00000002-0000-4000-8000-000000000001",
     "slug": "krusty-fadez",
     "name": "Krusty Fadez",
+    "timezone": "Pacific/Kwajalein",
 }
 REGULAR = {
     "id": "00000002-0000-4000-8000-000000000002",
     "slug": "regular-cutz",
     "name": "Regular Cutz",
+    "timezone": "America/Los_Angeles",
 }
 CHAIR_IDS = {
     KRUSTY["id"]: "0000000c-0000-4000-8000-000000000001",
@@ -589,6 +596,193 @@ def test_hours_write_refused_is_503(client, db, hours):
     )
 
     assert client.put(schedule_url(), json={"days": [MONDAY]}).status_code == 503
+
+
+# 13:00 UTC on Friday, October 30, 2026, which is already Saturday the 31st in Kwajalein.
+NOW = datetime(2026, 10, 30, 13, 0, tzinfo=UTC)
+KWAJALEIN = ZoneInfo("Pacific/Kwajalein")
+SAT_31 = date(2026, 10, 31)
+MON_2 = date(2026, 11, 2)
+TUE_3 = date(2026, 11, 3)
+
+
+def week_url(chair_id=CHAIR_IDS[KRUSTY["id"]]):
+    return f"/dashboard/chairs/{chair_id}/appointments"
+
+
+def at_krusty(day, clock):
+    """An instant on Krusty Fadez's clock, written the way PostgREST writes it."""
+    local = datetime.combine(day, time.fromisoformat(clock), tzinfo=KWAJALEIN)
+    return local.astimezone(UTC).isoformat()
+
+
+def booking(starts_at, status="ACCEPTED", **row):
+    """One appointment row as the week reads it."""
+    return {
+        "id": "00000007-0000-4000-8000-000000000001",
+        "starts_at": starts_at,
+        "duration_min": 45,
+        "client_name": "Pearl Krabs",
+        "service_title": "The Bubble Fade",
+        "price_cents": 2500,
+        "status": status,
+    } | row
+
+
+@pytest.fixture
+def week(db):
+    """The bookings and time off a week reads, both empty unless a test fills them."""
+    appointment = db.tables["appointment"]
+    time_off = db.tables["worker_time_off"]
+    bookings = appointment.select.return_value.eq.return_value.eq.return_value
+    bookings = bookings.gte.return_value.lt.return_value.neq.return_value.order.return_value
+    away = time_off.select.return_value.eq.return_value.lt.return_value.gt.return_value
+    bookings.execute.return_value = rows()
+    away.execute.return_value = rows()
+    return SimpleNamespace(appointment=appointment, time_off=time_off, bookings=bookings, away=away)
+
+
+def week_at_krusty(db, *hours):
+    """The week at the caller's Krusty Fadez chair, open on these days, as of NOW."""
+    db.read.execute.return_value = rows(mine(chair(KRUSTY, is_active=True, days=hours)))
+    return get_week(CALLER, UUID(CHAIR_IDS[KRUSTY["id"]]), now_utc=NOW)
+
+
+def test_week_runs_seven_days_from_the_shops_today(db, week):
+    found = week_at_krusty(db, MONDAY, TUESDAY)
+
+    assert found.timezone == "Pacific/Kwajalein"
+    assert [d.day for d in found.days] == [SAT_31 + timedelta(days=i) for i in range(7)]
+    assert [d.day_off for d in found.days] == [True, True, False, False, True, True, True]
+
+
+def test_week_reads_the_callers_bookings_here_between_the_shops_midnights(db, week):
+    week_at_krusty(db, MONDAY)
+
+    lo, hi = "2026-10-30T12:00:00+00:00", "2026-11-06T12:00:00+00:00"
+    by_worker = week.appointment.select.return_value.eq
+    at_shop = by_worker.return_value.eq
+    starting = at_shop.return_value.gte
+    before = starting.return_value.lt
+    listed = before.return_value.neq
+    assert by_worker.call_args == call("worker_id", WORKER_ID)
+    assert at_shop.call_args == call("establishment_id", KRUSTY["id"])
+    assert starting.call_args == call("starts_at", lo)
+    assert before.call_args == call("starts_at", hi)
+    assert listed.call_args == call("status", "CANCELLED")
+    assert listed.return_value.order.call_args == call("starts_at")
+    away = week.time_off.select.return_value.eq
+    assert away.call_args == call("worker_id", WORKER_ID)
+    assert away.return_value.lt.call_args == call("starts", hi)
+    assert away.return_value.lt.return_value.gt.call_args == call("ends", lo)
+
+
+def test_week_files_each_booking_under_the_shops_own_day(db, week):
+    late = booking(at_krusty(SAT_31, "23:30"))
+    early = booking(
+        at_krusty(SAT_31 + timedelta(days=1), "00:30"), id="00000007-0000-4000-8000-000000000002"
+    )
+    week.bookings.execute.return_value = rows(late, early)
+
+    days = week_at_krusty(db, MONDAY).days
+
+    assert [[str(a.id) for a in d.appointments] for d in days[:2]] == [[late["id"]], [early["id"]]]
+    # Saturday has no hours, and its booking is still listed.
+    assert days[0].day_off is True
+
+
+@pytest.mark.parametrize(
+    ("stretches", "off"),
+    [
+        ([], False),
+        ([(at_krusty(MON_2, "00:00"), at_krusty(TUE_3, "00:00"))], True),
+        (
+            [
+                (at_krusty(MON_2, "09:00"), at_krusty(MON_2, "12:00")),
+                (at_krusty(MON_2, "13:00"), at_krusty(MON_2, "17:00")),
+            ],
+            True,
+        ),
+        ([(at_krusty(MON_2, "10:00"), at_krusty(MON_2, "12:00"))], False),
+    ],
+    ids=["no-time-off", "all-day", "around-the-break", "part-of-the-day"],
+)
+def test_a_day_with_hours_is_off_only_when_time_off_covers_them(db, week, stretches, off):
+    week.away.execute.return_value = rows(*({"starts": s, "ends": e} for s, e in stretches))
+
+    days = {d.day: d.day_off for d in week_at_krusty(db, MONDAY, TUESDAY).days}
+
+    assert days[MON_2] is off
+    assert days[TUE_3] is False
+
+
+def test_week_sends_only_what_a_row_shows(client, db, week):
+    db.read.execute.return_value = rows(mine(chair(KRUSTY, is_active=True, days=[MONDAY])))
+    soon = (datetime.now(UTC) + timedelta(hours=1)).replace(microsecond=0)
+    week.bookings.execute.return_value = rows(
+        booking(soon.isoformat(), "PENDING", client_phone="+16925552003", client_notes="Meow.")
+    )
+
+    response = client.get(week_url())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["timezone"] == "Pacific/Kwajalein"
+    assert len(body["days"]) == 7
+    [listed] = [a for d in body["days"] for a in d["appointments"]]
+    assert set(listed) == {
+        "id",
+        "starts_at",
+        "duration_min",
+        "client_name",
+        "service_title",
+        "price_cents",
+        "status",
+    }
+    assert datetime.fromisoformat(listed["starts_at"]) == soon
+    assert listed["status"] == "PENDING"
+
+
+@pytest.mark.parametrize(
+    ("held", "chair_id"),
+    [
+        (mine(chair(KRUSTY, is_active=True)), NEW_CHAIR),
+        (mine(chair(KRUSTY, ended_at="2025-06-01T00:00:00+00:00")), CHAIR_IDS[KRUSTY["id"]]),
+        (None, CHAIR_IDS[KRUSTY["id"]]),
+    ],
+    ids=["someone-elses-chair", "ended-chair", "no-profile"],
+)
+def test_week_at_a_chair_the_caller_doesnt_hold_is_404(client, db, week, held, chair_id):
+    db.read.execute.return_value = rows() if held is None else rows(held)
+
+    response = client.get(week_url(chair_id))
+
+    assert response.status_code == 404
+    week.appointment.select.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("outcome", "code"),
+    [
+        ({"side_effect": APIError({"code": "PGRST303", "message": "JWT expired"})}, 401),
+        ({"side_effect": APIError({"code": "42501", "message": "permission denied"})}, 503),
+        ({"return_value": rows({"id": "00000007-0000-4000-8000-000000000001"})}, 503),
+    ],
+    ids=["token-rejected", "query-failed", "schema-mismatch"],
+)
+def test_week_failures(client, db, week, outcome, code):
+    db.read.execute.return_value = rows(mine(chair(KRUSTY, is_active=True)))
+    week.bookings.execute.configure_mock(**outcome)
+
+    assert client.get(week_url()).status_code == code
+
+
+def test_week_at_a_shop_with_an_unknown_time_zone_is_503(client, db, week):
+    lost = KRUSTY | {"timezone": "Bikini/Bottom"}
+    db.read.execute.return_value = rows(mine(chair(lost, is_active=True)))
+
+    assert client.get(week_url()).status_code == 503
+    week.appointment.select.assert_not_called()
 
 
 SKIN_FADE = {

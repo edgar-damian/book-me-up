@@ -3,10 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { createRoutesStub, data, redirect } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "~/models/auth";
-import type { MyChair, MyService, MyWorkerProfile } from "~/models/dashboard";
+import type { MyAppointment, MyChair, MyDay, MyService, MyWeek, MyWorkerProfile } from "~/models/dashboard";
 import DashboardRoute, { action, loader } from "~/routes/dashboard";
 import { commitSession, getSession } from "~/sessions.server";
 import type { Editing } from "~/widgets/Dashboard/editDialog";
+import { expectHeadingOutline } from "./helpers";
 
 const API_URL = "http://api.test";
 const NOW = 1_800_000_000; // unix seconds
@@ -41,6 +42,69 @@ const WAITING: MyChair = {
   shop: { slug: "krusty-fadez", name: "Krusty Fadez" },
   is_active: false,
   schedule_days: [],
+};
+/** A second shop the worker has joined. */
+const FADE_LAB: MyChair = {
+  id: "0000000c-0000-4000-8000-000000000003",
+  shop: { slug: "fade-lab", name: "Fade Lab" },
+  is_active: true,
+  schedule_days: [MONDAY],
+};
+
+/** A booking at Regular Cutz, which keeps Los Angeles time. */
+const booking = (id: number, fields: Omit<MyAppointment, "id">): MyAppointment => ({
+  id: `00000007-0000-4000-8000-00000000000${id}`,
+  ...fields,
+});
+const DANIEL = booking(1, {
+  starts_at: "2026-10-30T16:00:00Z", // 9:00 AM in Los Angeles
+  duration_min: 45,
+  client_name: "Daniel Kim",
+  service_title: "Skin fade",
+  price_cents: 3500,
+  status: "ACCEPTED",
+});
+const CHRIS = booking(2, {
+  starts_at: "2026-10-30T17:00:00Z", // 10:00 AM
+  duration_min: 60,
+  client_name: "Chris Alvarez",
+  service_title: "Haircut + beard trim",
+  price_cents: 5000,
+  status: "PENDING",
+});
+const SAM = booking(3, {
+  starts_at: "2026-10-30T20:00:00Z", // 1:00 PM
+  duration_min: 45,
+  client_name: "Sam Whitaker",
+  service_title: "Hot towel shave",
+  price_cents: 4500,
+  status: "REJECTED",
+});
+const ETHAN = booking(4, {
+  starts_at: "2026-11-02T17:30:00Z", // 9:30 AM, after the clocks go back
+  duration_min: 20,
+  client_name: "Ethan Brooks",
+  service_title: "Buzz cut",
+  price_cents: 2500,
+  status: "PENDING",
+});
+const day = (date: string, appointments: MyAppointment[] = [], day_off = false): MyDay => ({
+  day: date,
+  day_off,
+  appointments,
+});
+/** Friday, October 30 to Thursday, November 5, closed on Sundays and Thursdays. */
+const WEEK: MyWeek = {
+  timezone: "America/Los_Angeles",
+  days: [
+    day("2026-10-30", [DANIEL, CHRIS, SAM]),
+    day("2026-10-31"),
+    day("2026-11-01", [], true),
+    day("2026-11-02", [ETHAN]),
+    day("2026-11-03"),
+    day("2026-11-04"),
+    day("2026-11-05", [], true),
+  ],
 };
 const SKIN_FADE: MyService = {
   id: "0000000d-0000-4000-8000-000000000001",
@@ -104,22 +168,76 @@ describe("dashboard loader", () => {
   });
 
   it("asks /auth/me with the token, and leaves a fresh cookie alone", async () => {
-    const fetchMock = stubApi({ "/auth/me": { status: 200, body: ME } });
+    const fetchMock = stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [] },
+    });
 
     const result = await load(await cookie(3600));
 
-    expect(result.data).toEqual({ me: ME, editing: null });
     expect(result.init).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${API_URL}/auth/me`);
     expect(init?.headers).toEqual({ Authorization: "Bearer access-1" });
+  });
+
+  it("shows the week at the first shop the worker has joined, as the worker", async () => {
+    const fetchMock = stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [WAITING, JOINED] },
+      [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+    });
+
+    const result = await load(await cookie(3600));
+
+    expect(result.data).toEqual({ editing: null, chairs: [WAITING, JOINED], chair: JOINED, week: WEEK });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init?.headers).toEqual({ Authorization: "Bearer access-1" });
+    }
+  });
+
+  it("shows the week at the shop ?chair= names", async () => {
+    stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [JOINED, FADE_LAB] },
+      [`/dashboard/chairs/${FADE_LAB.id}/appointments`]: { status: 200, body: WEEK },
+    });
+
+    const result = await load(await cookie(3600), `?chair=${FADE_LAB.id}`);
+
+    expect(result.data).toMatchObject({ chair: FADE_LAB, week: WEEK });
+  });
+
+  it("shows the first shop when ?chair= names a request still waiting", async () => {
+    stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [WAITING, JOINED] },
+      [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+    });
+
+    const result = await load(await cookie(3600), `?chair=${WAITING.id}`);
+
+    expect(result.data).toMatchObject({ chair: JOINED, week: WEEK });
+  });
+
+  it("logs the visitor out when the API rejects the token for the week", async () => {
+    stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [JOINED] },
+      [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 401 },
+    });
+
+    const response = await thrown(load(await cookie(3600)));
+
+    expect(response.headers.get("Location")).toBe("/login");
   });
 
   it("renews a token with under a minute left before asking /auth/me", async () => {
     const fetchMock = stubApi({
       "/auth/refresh": { status: 200, body: RENEWED },
       "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [] },
     });
 
     const result = await load(await cookie(30));
@@ -230,23 +348,29 @@ describe("dashboard loader", () => {
 
     const result = await load(await cookie(3600));
 
-    expect(result.data).toEqual({ me: waiting, editing: null });
+    // No shop has accepted them yet, so there is no week to ask for.
+    expect(result.data).toMatchObject({ editing: null, chair: null, week: null });
   });
 
-  /** What the API holds for a live worker: a profile, a service, and these chairs. */
+  /** What the API holds for a live worker: a profile, a service, and these chairs, each with WEEK. */
   const saved = (chairs: MyChair[]) => ({
     "/auth/me": { status: 200, body: ME },
     "/dashboard/profile": { status: 200, body: PROFILE },
     "/dashboard/chairs": { status: 200, body: chairs },
     "/dashboard/services": { status: 200, body: [SKIN_FADE] },
+    ...Object.fromEntries(
+      chairs.map((c) => [`/dashboard/chairs/${c.id}/appointments`, { status: 200, body: WEEK }]),
+    ),
   });
 
   it("opens the hours at the shop the worker has joined, over a request still waiting", async () => {
-    stubApi(saved([WAITING, JOINED]));
+    const fetchMock = stubApi(saved([WAITING, JOINED]));
 
     const result = await load(await cookie(3600), "?edit=schedule");
 
     expect(result.data.editing).toEqual({ edit: "schedule", chairs: [WAITING, JOINED], chair: JOINED });
+    // The chairs the setup read serve the week too.
+    expect(fetchMock.mock.calls.filter(([url]) => url === `${API_URL}/dashboard/chairs`)).toHaveLength(1);
   });
 
   it("opens the hours at the shop ?chair= names", async () => {
@@ -276,7 +400,7 @@ describe("dashboard loader", () => {
 
     const result = await load(await cookie(3600), search);
 
-    expect(result.data).toEqual({ me: ME, editing: null });
+    expect(result.data.editing).toBeNull();
   });
 });
 
@@ -313,10 +437,10 @@ describe("dashboard action", () => {
     [`buffer-${SKIN_FADE.id}`]: "10",
   };
 
-  /** The real action, called the way the dialog's Save would call it. */
-  const post = async (fields: Record<string, string>) =>
+  /** The real action, called the way the dialog's Save would call it from `search`. */
+  const post = async (fields: Record<string, string>, search = "") =>
     action({
-      request: new Request("http://localhost/dashboard", {
+      request: new Request(`http://localhost/dashboard${search}`, {
         method: "POST",
         headers: { Cookie: await cookie(3600) },
         body: new URLSearchParams(fields),
@@ -338,6 +462,14 @@ describe("dashboard action", () => {
     expect(url).toBe(`${API_URL}${path}`);
     expect(init?.method).toBe("PUT");
     expect(init?.headers).toEqual({ Authorization: "Bearer access-1", "Content-Type": "application/json" });
+  });
+
+  it("closes the dialog onto the shop the dashboard was showing", async () => {
+    stubApi({ "/dashboard/profile": { status: 200, body: PROFILE } });
+
+    const response = await post(PROFILE_FORM, `?edit=profile&chair=${FADE_LAB.id}`);
+
+    expect((response as Response).headers.get("Location")).toBe(`/dashboard?chair=${FADE_LAB.id}`);
   });
 
   it("keeps the dialog open with the API's refusal", async () => {
@@ -383,8 +515,14 @@ describe("dashboard page", () => {
     }
   }
 
-  /** The real route component, with a stand-in loader that follows the URL and a stand-in action. */
-  function renderPage(url = "/dashboard", { chairs = [JOINED], refusal }: { chairs?: MyChair[]; refusal?: string } = {}) {
+  /**
+   * The real route component, with a stand-in action and a stand-in loader that
+   * follows the URL: the week is at the shop ?chair= names, else the first joined.
+   */
+  function renderPage(
+    url = "/dashboard",
+    { chairs = [JOINED], week = WEEK, refusal }: { chairs?: MyChair[]; week?: MyWeek; refusal?: string } = {},
+  ) {
     const posted: FormData[] = [];
     const pageAction = vi.fn(async ({ request }: { request: Request }) => {
       posted.push(await request.formData());
@@ -394,7 +532,12 @@ describe("dashboard page", () => {
       {
         path: "/dashboard",
         Component: DashboardRoute,
-        loader: ({ request }: { request: Request }) => ({ me: ME, editing: editingAt(request.url, chairs) }),
+        loader: ({ request }: { request: Request }) => {
+          const shops = chairs.filter((c) => c.is_active);
+          const named = new URL(request.url).searchParams.get("chair");
+          const chair = shops.find((c) => c.id === named) ?? shops.at(0) ?? null;
+          return { editing: editingAt(request.url, chairs), chairs, chair, week: chair && week };
+        },
         action: pageAction,
       },
     ]);
@@ -403,11 +546,141 @@ describe("dashboard page", () => {
   }
 
   const opened = (name: string) => screen.findByRole("dialog", { name });
+  /** The day card whose heading starts with `title`. */
+  const card = async (title: string) =>
+    (await screen.findByRole("heading", { level: 2, name: new RegExp(`^${title}`) })).closest("section")!;
 
-  it("greets the user by first name", async () => {
+  it("lists the week under Upcoming appointments, with the requests waiting", async () => {
     renderPage();
 
-    expect(await screen.findByText("Hi, Ada. You're logged in.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Upcoming appointments" })).toBeInTheDocument();
+    expect(screen.getByText(/your response/)).toHaveTextContent("2 requests need your response.");
+    const days = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(days.slice(0, 7)).toEqual([
+      "Today Friday, October 30",
+      "Tomorrow Saturday, October 31",
+      "Sunday November 1",
+      "Monday November 2",
+      "Tuesday November 3",
+      "Wednesday November 4",
+      "Thursday November 5",
+    ]);
+    expectHeadingOutline();
+  });
+
+  it("shows each booking's time, length, client, service, price, and status on the shop's clock", async () => {
+    renderPage();
+    const today = await card("Today");
+
+    expect(within(today).getByText("3 appointments")).toBeInTheDocument();
+    const rows = within(today).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    const daniel = within(rows[0]);
+    // ICU puts a narrow no-break space before AM and PM.
+    expect(daniel.getByText(/^9:00\sAM$/)).toBeInTheDocument();
+    expect(daniel.getByText("45 min")).toBeInTheDocument();
+    expect(daniel.getByText("Daniel Kim")).toBeInTheDocument();
+    expect(daniel.getByText("Skin fade")).toBeInTheDocument();
+    expect(daniel.getByText("$35.00")).toBeInTheDocument();
+    expect(daniel.getByText("Accepted")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("Rejected")).toBeInTheDocument();
+    // Monday is after the clocks go back, and still reads as 9:30.
+    expect(within(await card("Monday")).getByText(/^9:30\sAM$/)).toBeInTheDocument();
+  });
+
+  it("offers Accept and Reject on requests only, and neither does anything yet", async () => {
+    const { user, posted } = renderPage();
+    const today = await card("Today");
+
+    const accept = within(today).getByRole("button", { name: /^Accept Chris Alvarez at 10:00\sAM$/ });
+    expect(within(today).getByRole("button", { name: /^Reject Chris Alvarez at 10:00\sAM$/ })).toBeInTheDocument();
+    expect(within(today).getAllByRole("button")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^Accept / })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /cancel/i })).not.toBeInTheDocument();
+
+    await user.click(accept);
+
+    expect(posted).toHaveLength(0);
+    expect(within(today).getByText("Pending")).toBeInTheDocument();
+  });
+
+  it("says when a day has nothing booked yet, and when it's a day off", async () => {
+    renderPage();
+
+    expect(within(await card("Tomorrow")).getByText("No appointments yet")).toBeInTheDocument();
+    const sunday = await card("Sunday");
+    expect(within(sunday).getByText("Day off")).toBeInTheDocument();
+    expect(within(sunday).queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  it("says when nothing is booked today, and still lists bookings on a day off", async () => {
+    const saturday = { ...DANIEL, starts_at: "2026-10-31T16:00:00Z" };
+    renderPage("/dashboard", {
+      week: { ...WEEK, days: [day("2026-10-30"), day("2026-10-31", [saturday], true), ...WEEK.days.slice(2)] },
+    });
+
+    expect(within(await card("Today")).getByText("No appointments today yet")).toBeInTheDocument();
+    const tomorrow = await card("Tomorrow");
+    expect(within(tomorrow).getByText("Daniel Kim")).toBeInTheDocument();
+    expect(within(tomorrow).queryByText("Day off")).not.toBeInTheDocument();
+  });
+
+  it("counts a single request in the singular", async () => {
+    renderPage("/dashboard", { week: { ...WEEK, days: [day("2026-10-30", [DANIEL, CHRIS])] } });
+
+    expect(await screen.findByText(/your response/)).toHaveTextContent("1 request needs your response.");
+  });
+
+  it("leaves out the request line when nothing is waiting on the worker", async () => {
+    renderPage("/dashboard", { week: { ...WEEK, days: [day("2026-10-30", [DANIEL, SAM])] } });
+
+    await screen.findByRole("heading", { level: 1, name: "Upcoming appointments" });
+    expect(screen.queryByText(/your response/)).not.toBeInTheDocument();
+  });
+
+  it("links each shop for a worker at more than one, and marks the one showing", async () => {
+    const { user } = renderPage("/dashboard", { chairs: [JOINED, FADE_LAB, WAITING] });
+    const shops = await screen.findByRole("navigation", { name: "Shops" });
+
+    // A request still waiting isn't a shop with a week yet.
+    expect(within(shops).getAllByRole("link").map((l) => l.textContent)).toEqual(["Regular Cutz", "Fade Lab"]);
+    expect(within(shops).getByRole("link", { name: "Regular Cutz" })).toHaveAttribute("aria-current", "true");
+
+    await user.click(within(shops).getByRole("link", { name: "Fade Lab" }));
+
+    await waitFor(() =>
+      expect(within(shops).getByRole("link", { name: "Fade Lab" })).toHaveAttribute("aria-current", "true"),
+    );
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByRole("link", { name: "Hours" })).toHaveAttribute(
+      "href",
+      `/dashboard?edit=schedule&chair=${FADE_LAB.id}`,
+    );
+  });
+
+  it("shows no shop links for a worker at one shop", async () => {
+    renderPage();
+
+    await screen.findByRole("heading", { level: 1, name: "Upcoming appointments" });
+    expect(screen.queryByRole("navigation", { name: "Shops" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the shop showing when a dialog closes", async () => {
+    const { user } = renderPage(`/dashboard?chair=${FADE_LAB.id}&edit=profile`, { chairs: [JOINED, FADE_LAB] });
+    const profile = await opened("Your profile");
+
+    await user.click(within(profile).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(profile).not.toBeInTheDocument());
+    const shops = screen.getByRole("navigation", { name: "Shops" });
+    expect(within(shops).getByRole("link", { name: "Fade Lab" })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("tells a worker still waiting on their shop", async () => {
+    renderPage("/dashboard", { chairs: [WAITING] });
+
+    expect(await screen.findByText("We're waiting for Krusty Fadez to approve you.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: /^Today/ })).not.toBeInTheDocument();
   });
 
   it("uses the worker header, whose wordmark stays on the dashboard", async () => {
@@ -419,7 +692,7 @@ describe("dashboard page", () => {
   it("opens no dialog without ?edit=", async () => {
     renderPage();
 
-    await screen.findByText("Hi, Ada. You're logged in.");
+    await screen.findByRole("heading", { level: 1, name: "Upcoming appointments" });
     expect(screen.queryByRole("dialog", { name: /^Your/ })).not.toBeInTheDocument();
   });
 

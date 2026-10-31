@@ -3,30 +3,47 @@ import { Container } from "~/widgets/kit";
 import { SiteHeader } from "~/widgets/siteHeader";
 import { CompanyFooter } from "~/widgets/companyFooter";
 import { EditDialog, type Editing } from "~/widgets/Dashboard/editDialog";
-import type { Me } from "~/models/auth";
+import { ShopSwitcher } from "~/widgets/Dashboard/shopSwitcher";
+import { UpcomingWeek } from "~/widgets/Dashboard/appointments";
+import type { MyChair, MyWeek } from "~/models/dashboard";
 
 type Props = {
-  me: Me;
+  /** Every shop the worker works at, or has asked to join. */
+  chairs: MyChair[];
+  /** The shop whose week is showing, or null until a shop accepts the worker. */
+  chair: MyChair | null;
+  week: MyWeek | null;
   /** The part of the setup the header's links open, from ?edit=. */
   editing: Editing | null;
   /** Why the last save was refused. */
   error: string | null;
 };
 
-export function Dashboard({ me, editing, error }: Props) {
+export function Dashboard({ chairs, chair, week, editing, error }: Props) {
   // formMethod stays "POST" through the redirect that closes the dialog.
   const busy = useNavigation().formMethod === "POST";
+  const shops = chairs.filter((c) => c.is_active);
+  const waiting = chairs.find((c) => !c.is_active);
 
   return (
     <div className="overflow-x-clip bg-canvas-soft text-ink">
       <SiteHeader shop />
       <main>
-        <section className="py-16 md:py-24 lg:py-32">
+        <section className="py-8 md:py-12">
           <Container>
-            <h1 className="font-display text-display-1 text-ink">Dashboard</h1>
-            <p className="mt-6 max-w-2xl text-pretty text-body-md text-ink-secondary">
-              Hi, {me.first_name}. You're logged in.
-            </p>
+            <div className="max-w-4xl">
+              {chair && shops.length > 1 && (
+                <ShopSwitcher chairs={shops} chair={chair} to={(c) => `?chair=${c.id}`} className="mb-6" />
+              )}
+              <h1 className="text-heading-2 text-ink">Upcoming appointments</h1>
+              {week ? (
+                <UpcomingWeek week={week} />
+              ) : (
+                <p className="mt-1 text-body-sm text-ink-secondary">
+                  We're waiting for {waiting?.shop.name ?? "your shop"} to approve you.
+                </p>
+              )}
+            </div>
           </Container>
         </section>
       </main>

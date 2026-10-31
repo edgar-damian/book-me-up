@@ -139,7 +139,7 @@ create table public.worker_profile (
 
   -- booking policy, per chair
   hold_expiry_hours       integer not null default 24,
-  auto_accept             boolean not null default true,
+  auto_accept             boolean not null default false,
   min_lead_time_min       integer not null default 60,
   max_advance_days        integer not null default 60,
   cancellation_cutoff_min integer not null default 120,

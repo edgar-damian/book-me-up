@@ -313,6 +313,12 @@ loader can re-fetch step 2 on navigation and the whole flow stays shareable and
 back-button-safe. `action` maps a 409 from the API to a "pick another time" message, which
 is why the server's `SlotTaken` must not arrive as a 503.
 
+The dashboard works the same way. `?edit=` opens one part of the setup in the edit dialog,
+and `?chair=` is the shop whose week is showing (else the first one joined), with every
+time on that shop's clock. The header's worker links, the dialog's close, and the action's
+redirect all carry `?chair=`, so editing a setting never switches shops; a new link back to
+`/dashboard` should carry it too.
+
 **All styling goes through the `design-system` skill.** Tokens live in the `@theme` and
 `:root` / `.dark` blocks of `app/app.css`. Never write a raw hex or an arbitrary Tailwind
 value; if a token seems missing it belongs in `app.css` first. Two traps documented there:

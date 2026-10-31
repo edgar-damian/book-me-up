@@ -2,8 +2,9 @@ import { data, redirect } from "react-router";
 import type { Route } from "./+types/dashboard";
 import { Dashboard } from "../pages/Dashboard";
 import type { Me } from "~/models/auth";
+import type { MyChair, MyWeek } from "~/models/dashboard";
 import { authorize, toLogin } from "~/auth.server";
-import { loadSetup, saveProfile, saveSchedule, saveServices } from "~/dashboard.server";
+import { apiGet, loadSetup, saveProfile, saveSchedule, saveServices } from "~/dashboard.server";
 import { STEPS } from "~/widgets/Dashboard/onboarding";
 import type { Editing } from "~/widgets/Dashboard/editDialog";
 import { PROFILE_FORM } from "~/widgets/Dashboard/workerProfile";
@@ -53,7 +54,15 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw redirect("/onboarding", { headers });
   }
   const editing = setup && editingFor(edit, params.get("chair"), setup);
-  return data({ me, editing }, headers ? { headers } : undefined);
+
+  // The week is at the shop ?chair= names, else the first one the worker has joined.
+  const chairs = setup ? (setup.chairs ?? []) : ((await apiGet<MyChair[]>(request, token, "/dashboard/chairs")) ?? []);
+  const shops = chairs.filter((c) => c.is_active);
+  const chair = shops.find((c) => c.id === params.get("chair")) ?? shops.at(0) ?? null;
+  const week = chair
+    ? await apiGet<MyWeek>(request, token, `/dashboard/chairs/${encodeURIComponent(chair.id)}/appointments`)
+    : null;
+  return data({ editing, chairs, chair, week }, headers ? { headers } : undefined);
 }
 
 /** What saves each form the edit dialog holds, named by its intent. */
@@ -81,11 +90,21 @@ export async function action({ request }: Route.ActionArgs) {
   if (!save) throw new Response("Unknown form", { status: 400 });
 
   // A refusal leaves the dialog open, since the form posted to its own ?edit= URL.
+  // That URL also holds the shop the dashboard was showing, which the redirect keeps.
   const refused = await save(request, token, fd);
   if (refused) return data({ error: refused.error }, { status: refused.status, headers });
-  return redirect("/dashboard", { headers });
+  const chair = new URL(request.url).searchParams.get("chair");
+  return redirect(chair ? `/dashboard?chair=${encodeURIComponent(chair)}` : "/dashboard", { headers });
 }
 
 export default function DashboardRoute({ loaderData, actionData }: Route.ComponentProps) {
-  return <Dashboard me={loaderData.me} editing={loaderData.editing} error={actionData?.error ?? null} />;
+  return (
+    <Dashboard
+      chairs={loaderData.chairs}
+      chair={loaderData.chair}
+      week={loaderData.week}
+      editing={loaderData.editing}
+      error={actionData?.error ?? null}
+    />
+  );
 }

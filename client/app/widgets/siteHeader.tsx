@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Form, Link, useNavigation } from "react-router";
+import { Form, Link, useNavigation, useSearchParams } from "react-router";
 import { Container, Cta, Glyph, Spinner, Wordmark } from "~/widgets/kit";
 
 // Root-relative so each link reaches the landing page's section from any page.
@@ -88,6 +88,7 @@ export function SiteHeader({ company = false, shop = false }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const chair = useSearchParams()[0].get("chair");
 
   // makes a shadow on the header AFTER the user scrolls down
   useEffect(() => {
@@ -140,7 +141,11 @@ export function SiteHeader({ company = false, shop = false }: Props) {
     };
   }, [open]);
 
-  const links: NavItem[] | null = company ? NAV_LINKS : shop ? SHOP_LINKS : null;
+  // The shop the dashboard shows rides along, so a dialog opened from here keeps it.
+  const shopLinks = chair
+    ? SHOP_LINKS.map((l) => (l.href ? { ...l, href: `${l.href}&chair=${encodeURIComponent(chair)}` } : l))
+    : SHOP_LINKS;
+  const links: NavItem[] | null = company ? NAV_LINKS : shop ? shopLinks : null;
 
   return (
     <header

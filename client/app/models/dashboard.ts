@@ -98,3 +98,36 @@ export type MyService = {
   duration_min: number;
   buffer_after_min: number;
 };
+
+/** Every state an appointment can be in. */
+export type AppointmentStatus = "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED" | "COMPLETED" | "NO_SHOW";
+
+/**
+ * One booking at the worker's chair, as the dashboard lists it. starts_at is an
+ * absolute instant; the week's timezone puts it on the shop's clock.
+ */
+export type MyAppointment = {
+  id: string;
+  starts_at: string;
+  duration_min: number;
+  client_name: string;
+  service_title: string;
+  price_cents: number;
+  status: AppointmentStatus;
+};
+
+/**
+ * One day at a chair in the shop's calendar, as YYYY-MM-DD. day_off is true when
+ * the chair has no hours that weekday, or the worker's time off covers all of them.
+ */
+export type MyDay = {
+  day: string;
+  day_off: boolean;
+  appointments: MyAppointment[];
+};
+
+/** What GET /dashboard/chairs/{chair}/appointments returns: seven days, today first. */
+export type MyWeek = {
+  timezone: string;
+  days: MyDay[];
+};
