@@ -11,14 +11,45 @@ const NAV_LINKS = [
   { label: "Free Trial", href: "/#pricing" },
 ];
 
-// A signed-in worker's own pages. None has an href yet, so each renders as a
-// placeholder link until its page exists.
-const SHOP_LINKS: { label: string; href?: string }[] = [
+/** A header link. One without an href is a placeholder for a page not built yet. */
+type NavItem = { label: string; href?: string };
+
+// A signed-in worker's own settings, each opened in the dashboard's edit dialog.
+// Time off has no href yet, so it renders as a placeholder link until it exists.
+const SHOP_LINKS: NavItem[] = [
   { label: "Time off" },
-  { label: "Hours" },
-  { label: "Services" },
-  { label: "Profile" },
+  { label: "Hours", href: "/dashboard?edit=schedule" },
+  { label: "Services", href: "/dashboard?edit=services" },
+  { label: "Profile", href: "/dashboard?edit=profile" },
 ];
+
+/** A worker's link goes through Link, so opening a dialog doesn't reload the
+ *  dashboard. Company links jump to the landing page's sections, and a
+ *  placeholder has no href, so both stay plain anchors. */
+function HeaderLink({
+  link,
+  inApp,
+  className,
+  onClick,
+}: {
+  link: NavItem;
+  inApp: boolean;
+  className: string;
+  onClick?: () => void;
+}) {
+  if (inApp && link.href) {
+    return (
+      <Link to={link.href} preventScrollReset onClick={onClick} className={className}>
+        {link.label}
+      </Link>
+    );
+  }
+  return (
+    <a href={link.href} onClick={onClick} className={className}>
+      {link.label}
+    </a>
+  );
+}
 
 /** The worker's Log out. The /logout action ends their session and clears the
  *  cookie. While it runs, the spinner covers the hidden label, so the button
@@ -109,7 +140,7 @@ export function SiteHeader({ company = false, shop = false }: Props) {
     };
   }, [open]);
 
-  const links: { label: string; href?: string }[] | null = company ? NAV_LINKS : shop ? SHOP_LINKS : null;
+  const links: NavItem[] | null = company ? NAV_LINKS : shop ? SHOP_LINKS : null;
 
   return (
     <header
@@ -133,12 +164,11 @@ export function SiteHeader({ company = false, shop = false }: Props) {
                 <ul className="flex items-center gap-1">
                   {links.map((link) => (
                     <li key={link.label}>
-                      <a
-                        href={link.href}
+                      <HeaderLink
+                        link={link}
+                        inApp={shop}
                         className="inline-flex min-h-11 items-center rounded-md px-3 text-body-sm text-ink-secondary transition-colors duration-120 ease-standard hover:bg-hover-wash hover:text-ink"
-                      >
-                        {link.label}
-                      </a>
+                      />
                     </li>
                   ))}
                 </ul>
@@ -221,13 +251,12 @@ export function SiteHeader({ company = false, shop = false }: Props) {
               <ul className="flex flex-col gap-1">
                 {links.map((link) => (
                   <li key={link.label}>
-                    <a
-                      href={link.href}
+                    <HeaderLink
+                      link={link}
+                      inApp={shop}
                       onClick={() => setOpen(false)}
                       className="flex min-h-11 items-center rounded-sm px-3 text-title text-ink transition-colors duration-120 ease-standard hover:bg-hover-wash"
-                    >
-                      {link.label}
-                    </a>
+                    />
                   </li>
                 ))}
               </ul>

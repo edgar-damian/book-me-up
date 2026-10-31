@@ -8,9 +8,9 @@ export function loader() {
 }
 
 /**
- * Ends the Supabase session, so a copy of the cookie stops working too, then
+` * Ends the Supabase session, so a copy of the cookie stops working too, then
  * clears the cookie and goes to /login. The cookie goes even when the session
- * can't be ended, so a logout never fails.
+ * can't be ended, so a logout never fails.`
  */
 export async function action({ request }: Route.ActionArgs) {
   try {

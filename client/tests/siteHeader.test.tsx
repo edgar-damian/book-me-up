@@ -90,10 +90,21 @@ describe("site header", () => {
   it("gives a worker their own links and Log out, and nothing that leaves the app", () => {
     renderHeader({ shop: true });
 
-    expect(items(screen.getByRole("navigation", { name: "Primary" }))).toEqual(WORKER_LINKS);
-    // The wordmark is the only link, and it leads back to the dashboard.
-    expect(screen.getAllByRole("link")).toEqual([screen.getByRole("link", { name: /dashboard/ })]);
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(items(nav)).toEqual(WORKER_LINKS);
+    // Each opens its part of the setup on the dashboard. Time off isn't built yet.
+    expect(within(nav).getByRole("link", { name: "Hours" })).toHaveAttribute("href", "/dashboard?edit=schedule");
+    expect(within(nav).getByRole("link", { name: "Services" })).toHaveAttribute(
+      "href",
+      "/dashboard?edit=services",
+    );
+    expect(within(nav).getByRole("link", { name: "Profile" })).toHaveAttribute("href", "/dashboard?edit=profile");
+    expect(within(nav).queryByRole("link", { name: "Time off" })).not.toBeInTheDocument();
+    // The wordmark leads back to the dashboard, and no link goes anywhere else.
     expect(screen.getByRole("link", { name: /dashboard/ })).toHaveAttribute("href", "/dashboard");
+    for (const link of screen.getAllByRole("link")) {
+      expect(link.getAttribute("href")).toMatch(/^\/dashboard(\?|$)/);
+    }
     // One in the bar, one in the menu.
     expect(screen.getAllByRole("button", { name: "Log out" })).toHaveLength(2);
   });
