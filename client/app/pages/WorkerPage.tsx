@@ -13,6 +13,15 @@ import type {
 } from "~/models/workerPage";
 
 
+const CONTACT_LINK = "inline-flex min-h-11 items-center text-body-sm text-primary-text";
+
+/** A US number as (692) 555-0102. Other countries stay in E.164. */
+function displayPhone(e164: string) {
+  const us = e164.match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+  return us ? `(${us[1]}) ${us[2]}-${us[3]}` : e164;
+}
+
+
 function BarberHeader({ worker }: { worker: WorkerLandingPage }) {
   return (
     <section className="pt-16 md:pt-24 lg:pt-32">
@@ -23,6 +32,29 @@ function BarberHeader({ worker }: { worker: WorkerLandingPage }) {
         <p className="mt-6 max-w-2xl text-body-md text-ink-secondary">
           {worker.bio}
         </p>
+        {(worker.public_phone || worker.public_email) && (
+          <div className="mt-6 max-w-2xl">
+            <p className="text-body-md text-ink-secondary">Have questions? Reach out:</p>
+            <ul className="mt-1 list-disc pl-5 text-body-sm text-ink-secondary">
+              {worker.public_phone && (
+                <li>
+                  Phone:{" "}
+                  <a href={`tel:${worker.public_phone}`} className={CONTACT_LINK}>
+                    {displayPhone(worker.public_phone)}
+                  </a>
+                </li>
+              )}
+              {worker.public_email && (
+                <li>
+                  Email:{" "}
+                  <a href={`mailto:${worker.public_email}`} className={`${CONTACT_LINK} break-all`}>
+                    {worker.public_email}
+                  </a>
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
       </Container>
     </section>
   );
