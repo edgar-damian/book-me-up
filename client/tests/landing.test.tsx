@@ -28,15 +28,19 @@ function resolves(href: string) {
 }
 
 describe("landing page", () => {
-  // NOTE: change when removing waitlist
-  it("sends every sign-up CTA to the waitlist", () => {
+  it("sends every sign-up CTA to the sign-up page", () => {
     renderLanding();
     const ctas = [
       screen.getByRole("link", { name: "Create my booking link" }),
       screen.getByRole("link", { name: "Start my 3 free months" }),
-      ...screen.getAllByRole("link", { name: "Join a waitlist" }),
+      ...screen.getAllByRole("link", { name: "Sign up" }),
     ];
-    for (const cta of ctas) expect(cta).toHaveAttribute("href", "/waitlist");
+    for (const cta of ctas) expect(cta).toHaveAttribute("href", "/signup");
+  });
+
+  it("has no link to the waitlist", () => {
+    renderLanding();
+    expect(document.querySelector('a[href="/waitlist"]')).toBeNull();
   });
 
   it("sends every Log in link to the login page", () => {
