@@ -15,6 +15,8 @@ interface ServiceCardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const THEME_COLOR = "218 87% 35%";
 
+const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
 const CTA_CLASS = `mt-8 flex items-center justify-between bg-[hsl(var(--theme-color)/0.2)] backdrop-blur-md border border-[hsl(var(--theme-color)/0.3)]
                   rounded-lg px-4 py-3
                   transition-all duration-120
@@ -65,6 +67,11 @@ const ServiceCard = React.forwardRef<HTMLDivElement, ServiceCardProps>(
               {`${service.title}`}
             </h3>
             <p className="text-sm text-ink-secondary mt-1">{service.description}</p>
+
+            <div className="mt-4 flex items-baseline justify-between gap-3 text-body-sm font-medium text-ink tabular-nums">
+              <span>{money.format(service.price_cents / 100)}</span>
+              <span>{service.duration_min} min</span>
+            </div>
 
             {establishmentId ? (
               <Link
