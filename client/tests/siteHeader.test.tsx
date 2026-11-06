@@ -60,14 +60,14 @@ describe("site header", () => {
   it("wraps Tab and Shift+Tab inside the open menu", async () => {
     const user = renderHeader();
     await user.click(menuButton());
-    const logIn = within(menu()).getByRole("link", { name: "Log in" });
+    const signUp = within(menu()).getByRole("link", { name: "Sign up" });
 
-    logIn.focus();
+    signUp.focus();
     await user.tab();
     expect(closeButton()).toHaveFocus();
 
     await user.tab({ shift: true });
-    expect(logIn).toHaveFocus();
+    expect(signUp).toHaveFocus();
   });
 
   it("closes when a link in the menu is chosen", async () => {
