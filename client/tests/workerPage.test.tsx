@@ -25,6 +25,8 @@ const WORKER: WorkerLandingPage = {
 
 const PHONE = "+16925550102";
 const EMAIL = "sam@example.com";
+const SHOP = { address: "1 Main", city: "Reno", state: "NV", zip: "89501", lat: null, lng: null, timezone: "UTC", phone: null, email: null };
+const chair = (name: string): WorkerLandingPage["chairs"][number] => ({ id: name, schedule_days: [], establishment: { ...SHOP, id: name, slug: name, name } });
 
 function renderPage(contact: Partial<WorkerLandingPage>) {
   const Stub = createRoutesStub([{ path: "/", Component: () => <WorkerPage worker={{ ...WORKER, ...contact }} /> }]);
@@ -61,5 +63,18 @@ describe("worker page contact details", () => {
   it("keeps a number from outside the US as it is stored", () => {
     renderPage({ public_phone: "+442071838750" });
     expect(screen.getByRole("link", { name: "+442071838750" })).toHaveAttribute("href", "tel:+442071838750");
+  });
+});
+
+describe("worker page shop selector", () => {
+  it("hides it at one shop, which stays selected", () => {
+    renderPage({ chairs: [chair("Krusty")] });
+    expect(screen.queryByText("Works at")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Krusty" })).toBeInTheDocument();
+  });
+
+  it("keeps it at two shops", () => {
+    renderPage({ chairs: [chair("Krusty"), chair("Regular")] });
+    expect(screen.getByText("Select a shop to book")).toBeInTheDocument();
   });
 });

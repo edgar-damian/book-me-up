@@ -75,7 +75,7 @@ function ServiceList({
   onNeedShop: (serviceId: string) => void;
 }) {
   return (
-    <section className="pt-18 pb-16 md:pt-24 md:pb-24 lg:pt-30 lg:pb-32">
+    <section className="pt-4 pb-16 md:pt-6 md:pb-24 lg:pt-8 lg:pb-32">
       <Container>
         <h2 className="text-heading-2 text-ink"> Services </h2>
 
@@ -146,7 +146,7 @@ export function WorkerPage({
       <main>
         <BarberHeader worker={worker} />
 
-        <div ref={selectorRef} className="mt-10">
+        <div ref={selectorRef} className={worker.chairs.length > 1 ? "mt-10 mb-8 md:mb-10 lg:mb-12" : undefined}>
           <Container>
             <EstablishmentSelector
               chairs={worker.chairs}

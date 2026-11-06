@@ -25,7 +25,7 @@ export function EstablishmentSelector({
     setChosenId((cur) => (cur === id ? null : id));
   }
 
-  if (chairs.length === 0) return null;
+  if (chairs.length <= 1) return null;
 
   return (
     <div>
