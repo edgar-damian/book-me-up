@@ -76,8 +76,8 @@ type Props = { company: boolean; shop?: false } | { company?: false; shop: boole
 
 /** Sticky top bar on every page.
  *
- *  `company` adds book-me-up's own navigation: section links, Log in / Get
- *  started, and the mobile menu. `shop` adds a signed-in worker's instead: their
+ *  `company` adds book-me-up's own navigation: section links, Sign up / Log
+ *  in, and the mobile menu. `shop` adds a signed-in worker's instead: their
  *  own pages and Log out, with the wordmark leading back to the dashboard. Pages
  *  that belong to a shop or a barber pass neither and show the wordmark alone,
  *  linking home. */
@@ -181,16 +181,16 @@ export function SiteHeader({ company = false, shop = false }: Props) {
                 {company ? (
                   <>
                     <a
-                      href="/login"
+                      href="/signup"
                       className="inline-flex min-h-11 items-center rounded-md px-3 text-body-sm text-primary-text transition-colors duration-120 ease-standard hover:bg-hover-wash"
                     >
-                      Log in
+                      Sign up
                     </a>
                     <a
-                      href="/waitlist"
+                      href="/login"
                       className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 text-button text-on-primary transition-colors duration-120 ease-standard hover:bg-primary-hover active:bg-primary-active"
                     >
-                      Join a waitlist
+                      Log in
                     </a>
                   </>
                 ) : (
@@ -268,9 +268,9 @@ export function SiteHeader({ company = false, shop = false }: Props) {
             <div className="flex flex-col gap-2">
               {company ? (
                 <>
-                  <Cta href="/waitlist">Join a waitlist</Cta>
-                  <Cta href="/login" variant="secondary">
-                    Log in
+                  <Cta href="/login">Log in</Cta>
+                  <Cta href="/signup" variant="secondary">
+                    Sign up
                   </Cta>
                 </>
               ) : (
