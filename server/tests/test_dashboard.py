@@ -1040,7 +1040,39 @@ def test_an_id_that_isnt_the_callers_is_added_as_new(client, db, services):
     services.insert.assert_called_once_with(
         [KIDS_CUT | {"worker_id": WORKER_ID}], returning=ReturnMethod.minimal
     )
+    services.upsert.assert_called_once_with(
+        [SKIN_FADE | {"worker_id": WORKER_ID}], on_conflict="id", returning=ReturnMethod.minimal
+    )
     services.update.assert_not_called()
+
+
+def test_a_posted_worker_or_status_is_ignored(client, db, services):
+    services.read.execute.return_value = rows(menu(SKIN_FADE))
+    forged = {"worker_id": "00000003-0000-4000-8000-000000000099", "is_active": False}
+
+    client.put(SERVICES_URL, json={"services": [SKIN_FADE | forged, KIDS_CUT | forged]})
+
+    services.upsert.assert_called_once_with(
+        [SKIN_FADE | {"worker_id": WORKER_ID}], on_conflict="id", returning=ReturnMethod.minimal
+    )
+    services.insert.assert_called_once_with(
+        [KIDS_CUT | {"worker_id": WORKER_ID}], returning=ReturnMethod.minimal
+    )
+
+
+@pytest.mark.parametrize(
+    ("method", "body"),
+    [("GET", None), ("PUT", {"services": [SKIN_FADE]})],
+    ids=["read", "save"],
+)
+def test_the_menu_runs_as_the_caller_on_the_public_key(client, db, services, method, body):
+    services.read.execute.return_value = rows(menu(SKIN_FADE))
+
+    client.request(method, SERVICES_URL, json=body)
+
+    assert db.factory.call_args.args[1] == "test-publishable"
+    options = db.factory.call_args.kwargs["options"]
+    assert options.headers["Authorization"] == "Bearer access-1"
 
 
 def test_an_unchanged_menu_only_updates(client, db, services):
@@ -1051,6 +1083,58 @@ def test_an_unchanged_menu_only_updates(client, db, services):
     services.upsert.assert_called_once()
     services.update.assert_not_called()
     services.insert.assert_not_called()
+
+
+def test_a_first_menu_only_adds(client, db, services):
+    services.read.execute.return_value = rows(menu())
+
+    client.put(SERVICES_URL, json={"services": [KIDS_CUT]})
+
+    services.insert.assert_called_once()
+    services.update.assert_not_called()
+    services.upsert.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "limit",
+    [
+        {"price_cents": 0},
+        {"price_cents": 10_000_000},
+        {"duration_min": 1},
+        {"duration_min": 1440},
+        {"buffer_after_min": 480},
+        {"description": ""},
+    ],
+    ids=["free", "top-price", "shortest", "longest", "top-buffer", "no-description"],
+)
+def test_a_service_at_the_limits_is_saved(client, db, services, limit):
+    services.read.execute.return_value = rows(menu())
+
+    response = client.put(SERVICES_URL, json={"services": [KIDS_CUT | limit]})
+
+    assert response.status_code == 200
+    services.insert.assert_called_once_with(
+        [KIDS_CUT | limit | {"worker_id": WORKER_ID}], returning=ReturnMethod.minimal
+    )
+
+
+def test_fifty_services_is_the_most_a_menu_takes(client, db, services):
+    services.read.execute.return_value = rows(menu())
+
+    response = client.put(SERVICES_URL, json={"services": [KIDS_CUT] * 50})
+
+    assert response.status_code == 200
+    assert len(services.insert.call_args.args[0]) == 50
+
+
+def test_saving_the_menu_caps_the_text(client, db, services):
+    services.read.execute.return_value = rows(menu())
+    long = KIDS_CUT | {"title": "a" * 101, "description": "b" * 1001}
+
+    client.put(SERVICES_URL, json={"services": [long]})
+
+    sent = services.insert.call_args.args[0][0]
+    assert (len(sent["title"]), len(sent["description"])) == (100, 1000)
 
 
 def test_saving_the_menu_tidies_the_text(client, db, services):
@@ -1083,6 +1167,13 @@ def test_blank_service_name_is_422_and_never_queries(client, db):
         [SKIN_FADE | {"duration_min": 0}],
         [SKIN_FADE | {"duration_min": 1441}],
         [SKIN_FADE | {"buffer_after_min": 481}],
+        [SKIN_FADE | {"buffer_after_min": -1}],
+        [SKIN_FADE | {"price_cents": 10_000_001}],
+        [SKIN_FADE | {"price_cents": 35.5}],
+        [SKIN_FADE | {"price_cents": None}],
+        [SKIN_FADE | {"duration_min": None}],
+        [SKIN_FADE | {"id": "not-a-uuid"}],
+        [{"price_cents": 3500, "duration_min": 45}],
     ],
     ids=[
         "repeated-id",
@@ -1092,6 +1183,13 @@ def test_blank_service_name_is_422_and_never_queries(client, db):
         "no-duration",
         "too-long",
         "big-buffer",
+        "negative-buffer",
+        "too-expensive",
+        "fraction-of-a-cent",
+        "price-that-didnt-parse",
+        "length-that-didnt-parse",
+        "malformed-id",
+        "no-title",
     ],
 )
 def test_bad_menu_is_422_and_never_queries(client, db, posted):
@@ -1130,6 +1228,89 @@ def test_saving_the_menu_failures(client, db, services, read, insert, code):
     response = client.put(SERVICES_URL, json={"services": [without_id(SKIN_FADE)]})
 
     assert response.status_code == code
+
+
+@pytest.mark.parametrize(
+    ("read", "code"),
+    [
+        ({"side_effect": APIError({"code": "PGRST303", "message": "JWT expired"})}, 401),
+        ({"side_effect": APIError({"code": "42501", "message": "row-level security"})}, 503),
+        ({"return_value": rows({"id": WORKER_ID})}, 503),
+    ],
+    ids=["token-rejected", "read-refused", "schema-mismatch"],
+)
+def test_reading_the_menu_failures(client, db, services, read, code):
+    services.read.execute.configure_mock(**read)
+
+    assert client.get(SERVICES_URL).status_code == code
+
+
+WRITE_REFUSED = APIError({"code": "42501", "message": "row-level security"})
+
+
+def test_a_refused_turn_off_stops_before_any_other_write(client, db, services):
+    services.read.execute.return_value = rows(menu(SKIN_FADE, BEARD_TRIM))
+    turn_off = services.update.return_value.eq.return_value.in_.return_value
+    turn_off.execute.side_effect = WRITE_REFUSED
+
+    response = client.put(SERVICES_URL, json={"services": [SKIN_FADE, KIDS_CUT]})
+
+    assert response.status_code == 503
+    services.upsert.assert_not_called()
+    services.insert.assert_not_called()
+
+
+def test_a_refused_update_stops_before_anything_is_added(client, db, services):
+    services.read.execute.return_value = rows(menu(SKIN_FADE))
+    services.upsert.return_value.execute.side_effect = WRITE_REFUSED
+
+    response = client.put(SERVICES_URL, json={"services": [SKIN_FADE, KIDS_CUT]})
+
+    assert response.status_code == 503
+    services.insert.assert_not_called()
+
+
+def tables_used(db):
+    """Every table the request's client queried."""
+    return {c.args[0] for c in db.factory.return_value.table.call_args_list}
+
+
+def test_editing_and_deleting_services_only_writes_the_menu(client, db, services):
+    edited = SKIN_FADE | {"title": "Zero fade", "price_cents": 9900, "duration_min": 90}
+    services.read.execute.return_value = rows(menu(SKIN_FADE, BEARD_TRIM))
+
+    response = client.put(SERVICES_URL, json={"services": [edited]})
+
+    assert response.status_code == 200
+    assert tables_used(db) == {"worker_profile", "service"}
+    db.tables["service"].delete.assert_not_called()
+
+
+def test_week_shows_what_was_quoted_without_reading_the_menu(db, week):
+    quoted = {"service_title": "Retired cut", "price_cents": 1500, "duration_min": 30}
+    week.bookings.execute.return_value = rows(booking(at_krusty(MON_2, "09:00"), **quoted))
+
+    listed = week_at_krusty(db, MONDAY).days[2].appointments[0]
+
+    assert (listed.service_title, listed.price_cents, listed.duration_min) == (
+        "Retired cut",
+        1500,
+        30,
+    )
+    assert week.appointment.select.call_args == call(ROW_COLS)
+    assert "service" not in tables_used(db)
+
+
+@pytest.mark.parametrize("reply", [Answer.ACCEPTED, Answer.REJECTED], ids=["accept", "reject"])
+def test_a_booking_can_be_answered_after_its_service_is_gone(db, answer, reply):
+    answer.updated.execute.return_value = rows(
+        booking(at_krusty(MON_2, "09:00"), reply.value, service_title="Retired cut")
+    )
+
+    found = answer_request(CALLER, UUID(APPOINTMENT_ID), reply, now_utc=NOW)
+
+    assert found.service_title == "Retired cut"
+    assert "service" not in tables_used(db)
 
 
 TIME_OFF_URL = "/dashboard/time-off"

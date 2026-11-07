@@ -447,6 +447,14 @@ describe("onboarding action", () => {
     expect(result).toMatchObject({ data: { error: message }, init: { status } });
   });
 
+  it("PUTs a price or length that didn't parse as null, for the API to refuse", async () => {
+    const fetchMock = stubApi({ "/dashboard/services": { status: 422, body: LIST } });
+
+    await post([["intent", "worker-services"], ...serviceRow("new-1", "", "Kids cut", "free", "soon")]);
+
+    expect(sent(fetchMock).body.services[0]).toMatchObject({ price_cents: null, duration_min: null });
+  });
+
   it("logs the visitor out when the API rejects the token", async () => {
     stubApi({ "/dashboard/profile": { status: 401 } });
 
@@ -756,6 +764,92 @@ describe("onboarding page", () => {
 
     expect(screen.queryByText("Beard trim")).not.toBeInTheDocument();
     expect(screen.getByText("Skin fade")).toBeInTheDocument();
+  });
+
+  it("deletes the open service with its own Delete", async () => {
+    const { user } = renderPage("services", { ...SERVICES, services: [SKIN_FADE, BEARD_TRIM] });
+    await user.click(await screen.findByRole("button", { name: "Edit Beard trim" }));
+    await user.click(screen.getByRole("button", { name: "Delete this service" }));
+
+    expect(screen.queryByText("Beard trim")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Skin fade" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add more" })).toHaveFocus();
+  });
+
+  it("opens a blank service when the last one is deleted", async () => {
+    const { user } = renderPage("services", { ...SERVICES, services: [SKIN_FADE] });
+    await user.click(await screen.findByRole("button", { name: "Delete Skin fade" }));
+
+    expect(screen.queryByText("Skin fade")).not.toBeInTheDocument();
+    expect(textbox("Name")).toHaveValue("");
+    expect(textbox("Name")).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Delete this service" })).not.toBeInTheDocument();
+  });
+
+  it("leaves a deleted service out of what's posted", async () => {
+    const { user, posted } = renderPage("services", { ...SERVICES, services: [SKIN_FADE, BEARD_TRIM] });
+    await user.click(await screen.findByRole("button", { name: "Delete Beard trim" }));
+    await user.click(next());
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0].getAll("service")).toEqual([SKIN_FADE.id]);
+    expect(posted[0].get(`id-${BEARD_TRIM.id}`)).toBeNull();
+  });
+
+  it("posts an edit under the service's own id", async () => {
+    const { user, posted } = renderPage("services", { ...SERVICES, services: [SKIN_FADE] });
+    await user.click(await screen.findByRole("button", { name: "Edit Skin fade" }));
+    await user.clear(textbox("Name"));
+    await user.type(textbox("Name"), "Zero fade");
+    await user.clear(textbox("Price ($)"));
+    await user.type(textbox("Price ($)"), "99");
+    await user.click(next());
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    const form = posted[0];
+    expect(form.getAll("service")).toEqual([SKIN_FADE.id]);
+    expect(form.get(`id-${SKIN_FADE.id}`)).toBe(SKIN_FADE.id);
+    expect(form.get(`title-${SKIN_FADE.id}`)).toBe("Zero fade");
+    expect(form.get(`price-${SKIN_FADE.id}`)).toBe("99");
+  });
+
+  it.each([
+    { label: "Name", value: "   ", message: "Enter a name" },
+    { label: "Price ($)", value: "free", message: "Enter a price, like 35 or 35.50" },
+    { label: "Price ($)", value: "-5", message: "Enter a price, like 35 or 35.50" },
+    { label: "Price ($)", value: "35.555", message: "Enter a price, like 35 or 35.50" },
+    { label: "Price ($)", value: "100000.01", message: "Enter a price, like 35 or 35.50" },
+    { label: "Duration (min)", value: "", message: "Enter how many minutes it takes" },
+    { label: "Duration (min)", value: "0", message: "Enter how many minutes it takes" },
+    { label: "Duration (min)", value: "1.5", message: "Enter how many minutes it takes" },
+    { label: "Duration (min)", value: "1441", message: "Enter how many minutes it takes" },
+    { label: "Cleanup after (min)", value: "-1", message: "Enter 0 to 480 minutes" },
+    { label: "Cleanup after (min)", value: "481", message: "Enter 0 to 480 minutes" },
+  ])('refuses "$value" for $label, without posting', async ({ label, value, message }) => {
+    const { user, action: pageAction } = renderPage("services", { ...SERVICES, services: [SKIN_FADE] });
+    await user.click(await screen.findByRole("button", { name: "Edit Skin fade" }));
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    await user.click(next());
+
+    expect(screen.getByLabelText(label)).toHaveAccessibleDescription(message);
+    expect(screen.getByLabelText(label)).toHaveFocus();
+    expect(pageAction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "Price ($)", value: "0" },
+    { label: "Price ($)", value: "100000" },
+    { label: "Duration (min)", value: "1" },
+    { label: "Duration (min)", value: "1440" },
+    { label: "Cleanup after (min)", value: "" },
+    { label: "Cleanup after (min)", value: "480" },
+  ])('accepts "$value" for $label', async ({ label, value }) => {
+    const { user, posted } = renderPage("services", { ...SERVICES, services: [SKIN_FADE] });
+    await user.click(await screen.findByRole("button", { name: "Edit Skin fade" }));
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    await user.click(next());
+
+    await waitFor(() => expect(posted).toHaveLength(1));
   });
 
   it("asks for a first service when Next is pressed with nothing typed", async () => {

@@ -125,6 +125,14 @@ const SKIN_FADE: MyService = {
   duration_min: 45,
   buffer_after_min: 10,
 };
+const BEARD_TRIM: MyService = {
+  id: "0000000d-0000-4000-8000-000000000002",
+  title: "Beard trim",
+  description: "",
+  price_cents: 2000,
+  duration_min: 20,
+  buffer_after_min: 0,
+};
 /** Monday and Tuesday off, on Regular Cutz's calendar. */
 const AWAY: MyStretch = {
   id: "00000009-0000-4000-8000-000000000001",
@@ -448,6 +456,14 @@ describe("dashboard loader", () => {
     expect(result.data.editing).toEqual(editing);
   });
 
+  it("lists the week without asking for the services", async () => {
+    const fetchMock = stubApi(saved([JOINED]));
+
+    await load(await cookie(3600));
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(`${API_URL}/dashboard/services`);
+  });
+
   it.each([
     { what: "a part it doesn't know", search: "?edit=billing", chairs: [JOINED] },
     { what: "hours without a current chair", search: "?edit=schedule", chairs: [] },
@@ -552,6 +568,53 @@ describe("dashboard action", () => {
     const response = await thrown(post(PROFILE_FORM));
 
     expect(response.headers.get("Location")).toBe("/login");
+  });
+
+  it("PUTs an edit under the service's own id, price in cents", async () => {
+    const fetchMock = stubApi({ "/dashboard/services": { status: 200, body: [SKIN_FADE] } });
+
+    await post({
+      ...SERVICES_FORM,
+      [`title-${SKIN_FADE.id}`]: "Zero fade",
+      [`price-${SKIN_FADE.id}`]: "99.50",
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      services: [{ ...SKIN_FADE, title: "Zero fade", price_cents: 9950 }],
+    });
+  });
+
+  it("keeps the dialog open when the API refuses the services", async () => {
+    stubApi({ "/dashboard/services": { status: 422, body: { detail: "Every service needs a name" } } });
+
+    const result = await post(SERVICES_FORM);
+
+    expect(result).toMatchObject({ data: { error: "Every service needs a name" }, init: { status: 422 } });
+  });
+
+  it("logs the visitor out when the API rejects the token for the services", async () => {
+    stubApi({ "/dashboard/services": { status: 401 } });
+
+    const response = await thrown(post(SERVICES_FORM));
+
+    expect(response.headers.get("Location")).toBe("/login");
+  });
+
+  it("sends a visitor without the cookie to /login instead of saving the services", async () => {
+    const fetchMock = stubApi({});
+
+    const response = await thrown(
+      action({
+        request: new Request("http://localhost/dashboard", {
+          method: "POST",
+          body: new URLSearchParams(SERVICES_FORM),
+        }),
+      } as Parameters<typeof action>[0]),
+    );
+
+    expect(response.headers.get("Location")).toBe("/login");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   /** What a request's Accept posts from its row. */
@@ -661,7 +724,7 @@ describe("dashboard action", () => {
 
 describe("dashboard page", () => {
   /** What the stand-in loader opens for ?edit= and ?chair=, the first chair by default. */
-  function editingAt(url: string, chairs: MyChair[], timeOff: MyTimeOff): Editing | null {
+  function editingAt(url: string, chairs: MyChair[], timeOff: MyTimeOff, services: MyService[]): Editing | null {
     const params = new URL(url).searchParams;
     const chair = chairs.find((c) => c.id === params.get("chair")) ?? chairs[0];
     switch (params.get("edit")) {
@@ -670,7 +733,7 @@ describe("dashboard page", () => {
       case "schedule":
         return { edit: "schedule", chairs, chair };
       case "services":
-        return { edit: "services", services: [SKIN_FADE] };
+        return { edit: "services", services };
       case "time-off":
         return { edit: "time-off", chair, timeOff };
       default:
@@ -691,6 +754,7 @@ describe("dashboard page", () => {
       chairs = [JOINED],
       week = WEEK,
       timeOff = TIME_OFF,
+      services = [SKIN_FADE],
       conflicts,
       refusal,
       hang = false,
@@ -698,6 +762,7 @@ describe("dashboard page", () => {
       chairs?: MyChair[];
       week?: MyWeek;
       timeOff?: MyTimeOff;
+      services?: MyService[];
       conflicts?: TimeOffConflict[];
       refusal?: string;
       hang?: boolean;
@@ -732,7 +797,7 @@ describe("dashboard page", () => {
           const shops = chairs.filter((c) => c.is_active);
           const named = new URL(request.url).searchParams.get("chair");
           const chair = shops.find((c) => c.id === named) ?? shops.at(0) ?? null;
-          return { editing: editingAt(request.url, chairs, timeOff), chairs, chair, week: chair && current };
+          return { editing: editingAt(request.url, chairs, timeOff, services), chairs, chair, week: chair && current };
         },
         action: pageAction,
       },
@@ -990,6 +1055,59 @@ describe("dashboard page", () => {
 
     const services = await opened("Your services");
     expect(within(services).getByRole("button", { name: "Edit Skin fade" })).toBeInTheDocument();
+  });
+
+  it("saves an edited service from the dialog, then closes", async () => {
+    const { user, posted } = renderPage("/dashboard?edit=services");
+    const services = await opened("Your services");
+    await user.click(within(services).getByRole("button", { name: "Edit Skin fade" }));
+    const name = within(services).getByRole("textbox", { name: "Name" });
+    await user.clear(name);
+    await user.type(name, "Zero fade");
+    await user.click(within(services).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(services).not.toBeInTheDocument());
+    expect(posted).toHaveLength(1);
+    expect(posted[0].get("intent")).toBe("worker-services");
+    expect(posted[0].get(`id-${SKIN_FADE.id}`)).toBe(SKIN_FADE.id);
+    expect(posted[0].get(`title-${SKIN_FADE.id}`)).toBe("Zero fade");
+  });
+
+  it("saves a deleted service by leaving it out of the post", async () => {
+    const { user, posted } = renderPage("/dashboard?edit=services", { services: [SKIN_FADE, BEARD_TRIM] });
+    const services = await opened("Your services");
+    await user.click(within(services).getByRole("button", { name: "Delete Beard trim" }));
+    await user.click(within(services).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(services).not.toBeInTheDocument());
+    expect(posted[0].getAll("service")).toEqual([SKIN_FADE.id]);
+  });
+
+  it("won't save with every service deleted", async () => {
+    const { user, posted } = renderPage("/dashboard?edit=services");
+    const services = await opened("Your services");
+    await user.click(within(services).getByRole("button", { name: "Delete Skin fade" }));
+    await user.click(within(services).getByRole("button", { name: "Save" }));
+
+    expect(within(services).getByRole("textbox", { name: "Name" })).toHaveAccessibleDescription("Enter a name");
+    expect(posted).toHaveLength(0);
+    expect(services).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      change: "edited",
+      menu: [{ ...SKIN_FADE, title: "Zero fade", price_cents: 9900, duration_min: 90 }],
+    },
+    { change: "deleted", menu: [BEARD_TRIM] },
+  ])("keeps what a booking was quoted once its service is $change", async ({ menu }) => {
+    renderPage("/dashboard?edit=services", { services: menu });
+    await opened("Your services");
+
+    const daniel = within(screen.getByText("Daniel Kim").closest("li")!);
+    expect(daniel.getByText("Skin fade")).toBeInTheDocument();
+    expect(daniel.getByText("$35.00")).toBeInTheDocument();
+    expect(daniel.getByText("45 min")).toBeInTheDocument();
   });
 
   it("posts the open form on Save, named by its intent, then closes", async () => {

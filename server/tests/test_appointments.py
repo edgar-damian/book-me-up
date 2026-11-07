@@ -5,8 +5,10 @@ as typed, and that the route still maps every outcome to the right status.
 """
 
 import json
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -96,6 +98,58 @@ def _body(first="Pearl", last="Krabs", phone=PHONE, email=None, notes=None, star
 def _row(insert) -> dict:
     insert.assert_called_once()
     return insert.call_args.args[0]
+
+
+def test_booking_copies_the_service_onto_the_appointment(client, insert):
+    assert client.post(URL, json=_body()).status_code == 201
+
+    row = _row(insert)
+    assert row["service_title"] == "Skin fade"
+    assert row["price_cents"] == 3500
+    assert row["duration_min"] == 45
+    assert row["buffer_after_min"] == 15
+
+
+def test_the_request_cant_set_the_service_details(client, insert):
+    forged = {"service_title": "Free cut", "price_cents": 0, "duration_min": 1}
+
+    assert client.post(URL, json=_body() | forged).status_code == 201
+
+    row = _row(insert)
+    assert (row["service_title"], row["price_cents"], row["duration_min"]) == (
+        "Skin fade",
+        3500,
+        45,
+    )
+
+
+@pytest.fixture
+def turned_off():
+    """The real _load_context, where the read of offered services finds nothing."""
+    with (
+        patch.object(booking, "public_db") as public_db,
+        patch.object(booking, "admin_db") as admin_db,
+    ):
+        tables = defaultdict(MagicMock)
+        public_db.table.side_effect = tables.__getitem__
+        by_worker = tables["service"].select.return_value.eq.return_value.eq
+        offered = by_worker.return_value.eq
+        offered.return_value.limit.return_value.execute.return_value = MagicMock(data=[])
+        yield SimpleNamespace(offered=offered, admin_db=admin_db)
+
+
+@pytest.mark.parametrize("step", ["dates", "times?day=2030-01-15"], ids=["dates", "times"])
+def test_a_turned_off_service_cant_be_picked(client, turned_off, step):
+    base = f"/booking/establishment/{uuid4()}/worker/{uuid4()}/service/{uuid4()}"
+
+    assert client.get(f"{base}/{step}").status_code == 404
+    assert turned_off.offered.call_args == call("is_active", True)
+
+
+def test_a_turned_off_service_cant_be_booked(client, turned_off):
+    assert client.post(URL, json=_body()).status_code == 404
+    assert turned_off.offered.call_args == call("is_active", True)
+    turned_off.admin_db.table.assert_not_called()
 
 
 @pytest.mark.parametrize(
