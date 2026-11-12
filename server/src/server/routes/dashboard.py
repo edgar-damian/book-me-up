@@ -1,6 +1,6 @@
 """
-The signed-in worker's own setup. Every route acts as the caller, so RLS decides
-what each one can read and write.
+The signed-in worker's own setup, and the requests to join the shops they own.
+Every route acts as the caller, so RLS decides what each one can read and write.
 """
 
 from typing import Annotated
@@ -9,7 +9,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from server.models.dashboard import (
+    AnsweredJoinRequest,
     AnswerRequest,
+    JoinRequest,
     JoinShop,
     MyAppointment,
     MyChair,
@@ -31,8 +33,10 @@ from server.supabase.dashboard import (
     ProfileMissing,
     RequestClosed,
     SlugTaken,
+    answer_join_request,
     answer_request,
     get_chairs,
+    get_join_requests,
     get_profile,
     get_services,
     get_time_off,
@@ -159,6 +163,62 @@ def write_join_request(body: JoinShop, caller: Annotated[Caller, Depends(current
             detail="That's not an existing shop",
         )
     return chair
+
+
+@router.get(
+    "/join-requests",
+    response_model=list[JoinRequest],
+    responses={401: {"description": "Missing, invalid, or expired access token"}},
+)
+def read_join_requests(caller: Annotated[Caller, Depends(current_user)]):
+    """The workers waiting to join the caller's shops, oldest first, for the inbox."""
+    try:
+        return get_join_requests(caller)
+    except NotSignedIn:
+        raise _not_signed_in()
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+
+@router.put(
+    "/join-requests/{chair_id}",
+    response_model=AnsweredJoinRequest,
+    responses={
+        401: {"description": "Missing, invalid, or expired access token"},
+        404: {"description": "Not a request at one of the caller's shops"},
+        409: {"description": "The request isn't waiting on an answer anymore"},
+        422: {"description": "An answer other than ACCEPTED or REJECTED"},
+    },
+)
+def write_join_answer(
+    chair_id: UUID, body: AnswerRequest, caller: Annotated[Caller, Depends(current_user)]
+):
+    """
+    Accepts or declines a request to join one of the caller's shops. Accepting gives
+    the worker the chair, and declining removes the request. Accepting again changes
+    nothing.
+    """
+    try:
+        answered = answer_join_request(caller, chair_id, body.status)
+    except RequestClosed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This request isn't waiting on an answer anymore",
+        )
+    except NotSignedIn:
+        raise _not_signed_in()
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
+
+    if answered is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such request")
+    return answered
 
 
 @router.put(
