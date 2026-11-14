@@ -327,6 +327,12 @@ put. A refused answer goes back without an error status, because React Router sk
 reloading the loaders after an action status of 400 or more, and the row should show what
 became of the booking.
 
+`?inbox` opens the inbox: the requests to join the shops the worker owns, in the same
+`Sheet` (`widgets/Dashboard/sheet.tsx`) as the edit dialog. Accept and Decline post from
+each row through a fetcher, answered with data the same way. The reload drops an answered
+request from the loader's list, so `Inbox` keeps every row it has shown until it closes,
+and each row shows its own result.
+
 Time off is saved even over bookings. When it falls on some, the action answers with data
 listing them instead of redirecting, so the dialog stays open on that list while the
 loaders reload behind it. Every answer with data carries both `error` and `conflicts`;

@@ -1,8 +1,9 @@
-import { useNavigation } from "react-router";
+import { Link, useNavigation } from "react-router";
 import { Container, IconInbox } from "~/widgets/kit";
 import { SiteHeader } from "~/widgets/siteHeader";
 import { CompanyFooter } from "~/widgets/companyFooter";
 import { EditDialog, type Editing } from "~/widgets/Dashboard/editDialog";
+import { Inbox } from "~/widgets/Dashboard/inbox";
 import { ShopSwitcher } from "~/widgets/Dashboard/shopSwitcher";
 import { UpcomingWeek } from "~/widgets/Dashboard/appointments";
 import type { JoinRequest, MyChair, MyWeek, TimeOffConflict } from "~/models/dashboard";
@@ -17,13 +18,15 @@ type Props = {
   requests: JoinRequest[];
   /** The part of the setup the header's links open, from ?edit=. */
   editing: Editing | null;
+  /** True while the inbox is open, from ?inbox. */
+  inbox: boolean;
   /** Why the last save was refused. */
   error: string | null;
   /** The bookings that time off just saved falls on. */
   conflicts: TimeOffConflict[] | null;
 };
 
-export function Dashboard({ chairs, chair, week, requests, editing, error, conflicts }: Props) {
+export function Dashboard({ chairs, chair, week, requests, editing, inbox, error, conflicts }: Props) {
   // formMethod stays "POST" through the redirect that closes the dialog.
   const busy = useNavigation().formMethod === "POST";
   const shops = chairs.filter((c) => c.is_active);
@@ -42,8 +45,10 @@ export function Dashboard({ chairs, chair, week, requests, editing, error, confl
               )}
               <div className="flex items-center justify-between gap-4">
                 <h1 className="text-heading-2 text-ink">Upcoming appointments</h1>
-                <button
-                  type="button"
+                {/* Keeps the shop that is showing, so closing the inbox lands back on it. */}
+                <Link
+                  to={chair ? `?inbox&chair=${chair.id}` : "?inbox"}
+                  preventScrollReset
                   aria-label={unanswered ? `Inbox, ${unanswered} ${unanswered === 1 ? "request" : "requests"}` : "Inbox"}
                   className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-md border border-border-input bg-surface text-ink transition-colors duration-120 ease-standard hover:bg-hover-wash active:bg-press-wash"
                 >
@@ -56,7 +61,7 @@ export function Dashboard({ chairs, chair, week, requests, editing, error, confl
                       {unanswered > 9 ? "9+" : unanswered}
                     </span>
                   )}
-                </button>
+                </Link>
               </div>
               {week ? (
                 <UpcomingWeek week={week} />
@@ -71,6 +76,7 @@ export function Dashboard({ chairs, chair, week, requests, editing, error, confl
       </main>
       <CompanyFooter />
       {editing && <EditDialog editing={editing} error={error} conflicts={conflicts} busy={busy} />}
+      {inbox && <Inbox requests={requests} />}
     </div>
   );
 }
