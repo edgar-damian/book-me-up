@@ -31,12 +31,13 @@ const ACTIONS_COL = "md:w-60 md:shrink-0";
 const BUTTON =
   "inline-flex min-h-11 items-center justify-center rounded-md px-4 text-button " +
   "transition-colors duration-120 ease-standard disabled:pointer-events-none disabled:opacity-50";
-const ACCEPT = `${BUTTON} bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active`;
-const REJECT = `${BUTTON} border border-border-input bg-surface text-ink hover:bg-hover-wash active:bg-press-wash`;
-const CONFIRM = `${BUTTON} bg-danger text-on-danger hover:bg-danger-hover active:bg-danger-active`;
+// Also the inbox's, for a join request's answer.
+export const ACCEPT = `${BUTTON} bg-primary text-on-primary hover:bg-primary-hover active:bg-primary-active`;
+export const REJECT = `${BUTTON} border border-border-input bg-surface text-ink hover:bg-hover-wash active:bg-press-wash`;
+export const CONFIRM = `${BUTTON} bg-danger text-on-danger hover:bg-danger-hover active:bg-danger-active`;
 
 /** A button's text, kept in place but hidden while a spinner stands in, so the button keeps its width. */
-function Label({ text, sending, status }: { text: string; sending: boolean; status: string }) {
+export function Label({ text, sending, status }: { text: string; sending: boolean; status: string }) {
   return (
     <>
       <span className={sending ? "invisible" : undefined}>{text}</span>

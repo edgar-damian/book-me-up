@@ -264,3 +264,28 @@ export async function answerRequest(request: Request, token: string, fd: FormDat
     ),
   };
 }
+
+/**
+ * Sends the answer to a request to join one of the worker's shops to
+ * PUT /dashboard/join-requests/{id}. Returns null once answered, or the message
+ * to show with the API's status. Throws a redirect to /login when the token is refused.
+ */
+export async function answerJoinRequest(request: Request, token: string, fd: FormData) {
+  // Anything but ACCEPTED or REJECTED goes as posted, which the API refuses.
+  const body = { status: String(fd.get("status") ?? "") } as AnswerRequest;
+  const chair = encodeURIComponent(String(fd.get("chair") ?? ""));
+
+  const res = await apiPut(request, token, `/dashboard/join-requests/${chair}`, body);
+  if (res.ok) return null;
+  return {
+    status: res.status,
+    error: await refusal(
+      res,
+      {
+        404: "This request was withdrawn or already declined",
+        409: "This request was already answered",
+      },
+      "Could not send your answer, please try again",
+    ),
+  };
+}

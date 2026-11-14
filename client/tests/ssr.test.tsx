@@ -134,6 +134,8 @@ describe("server rendering", () => {
             chairs={[chair]}
             chair={chair}
             week={null}
+            requests={[]}
+            inbox={false}
             editing={{ edit: "schedule", chairs: [chair], chair }}
             error={null}
             conflicts={null}
@@ -173,7 +175,16 @@ describe("server rendering", () => {
       {
         path: "/dashboard",
         Component: () => (
-          <Dashboard chairs={[chair]} chair={chair} week={week} editing={null} error={null} conflicts={null} />
+          <Dashboard
+            chairs={[chair]}
+            chair={chair}
+            week={week}
+            requests={[]}
+            inbox={false}
+            editing={null}
+            error={null}
+            conflicts={null}
+          />
         ),
       },
     ]);
@@ -213,6 +224,8 @@ describe("server rendering", () => {
             chairs={[chair]}
             chair={chair}
             week={null}
+            requests={[]}
+            inbox={false}
             editing={{ edit: "time-off", chair, timeOff }}
             error={null}
             conflicts={null}
@@ -235,6 +248,8 @@ describe("server rendering", () => {
             chairs={[chair]}
             chair={chair}
             week={null}
+            requests={[]}
+            inbox={false}
             editing={{ edit: "time-off", chair, timeOff }}
             error={null}
             conflicts={timeOff.conflicts}
@@ -248,5 +263,45 @@ describe("server rendering", () => {
     expect(html).toMatch(/9:00\sAM/);
     expect(html).toContain(">Done<");
     expect(html).not.toContain('form="worker-time-off"');
+  });
+
+  const squidward = {
+    id: "0000000c-0000-4000-8000-000000000004",
+    requested_at: "2026-10-29T18:00:00Z",
+    shop: { slug: "krusty-fadez", name: "Krusty Fadez" },
+    worker: {
+      first_name: "Squidward",
+      last_name: "Tentacles",
+      bio: "Clarinet player, reluctant barber.",
+      public_email: "squidward@example.com",
+      public_phone: "+16925559003",
+    },
+  };
+
+  it.each([
+    { what: "a request", requests: [squidward], shows: ["Squidward Tentacles", 'href="tel:+16925559003"'] },
+    { what: "nothing", requests: [], shows: ["Nothing waiting"] },
+  ])("renders the inbox open on $what without a browser", ({ requests, shows }) => {
+    const Stub = createRoutesStub([
+      {
+        path: "/dashboard",
+        Component: () => (
+          <Dashboard
+            chairs={[chair]}
+            chair={chair}
+            week={null}
+            requests={requests}
+            inbox
+            editing={null}
+            error={null}
+            conflicts={null}
+          />
+        ),
+      },
+    ]);
+    const html = renderToString(<Stub initialEntries={["/dashboard?inbox"]} />);
+
+    expect(html).toContain("<dialog");
+    for (const text of shows) expect(html).toContain(text);
   });
 });

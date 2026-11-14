@@ -165,7 +165,9 @@ is constructed**:
   checked before any query runs. Removing a service turns it off (`is_active = false`)
   rather than deleting it, so its appointments keep their history.
 - `RequestClosed` → **409**. Dashboard only; an answer to a booking that is no longer
-  `PENDING` and has a different status from the one asked for.
+  `PENDING` and has a different status from the one asked for, or to a join request
+  that isn't waiting anymore (declining one already accepted, or answering one that
+  has ended).
 
 `_run(query, what)` in `sb_function.py` is the house idiom for reads: it catches `APIError`
 and `httpx.HTTPError`, logs, and re-raises as `DatabaseUnavailable`. `_run_write()` in
@@ -325,6 +327,12 @@ put. A refused answer goes back without an error status, because React Router sk
 reloading the loaders after an action status of 400 or more, and the row should show what
 became of the booking.
 
+`?inbox` opens the inbox: the requests to join the shops the worker owns, in the same
+`Sheet` (`widgets/Dashboard/sheet.tsx`) as the edit dialog. Accept and Decline post from
+each row through a fetcher, answered with data the same way. The reload drops an answered
+request from the loader's list, so `Inbox` keeps every row it has shown until it closes,
+and each row shows its own result.
+
 Time off is saved even over bookings. When it falls on some, the action answers with data
 listing them instead of redirecting, so the dialog stays open on that list while the
 loaders reload behind it. Every answer with data carries both `error` and `conflicts`;
@@ -373,7 +381,11 @@ Authorization checks should query those rows rather than caching a role string.
 
 `WorkerEstablishment` models one barber's chair at one shop, and is what most scheduling
 hangs off. An inactive row with no `endedAt` is a request to join, waiting on that shop's
-owner; an `endedAt` marks a stint that is over. Note the deliberate asymmetry in what is
+owner; an `endedAt` marks a stint that is over. The owner answers through
+`PUT /dashboard/join-requests/{id}` (`answer_join_request()`): accepting turns the chair on
+and resets `startedAt` to that moment, and declining deletes the row, so the worker can ask
+again. The applicant's profile is still hidden then, and `worker_profile_owner_read` is
+what lets the owner read it. Note the deliberate asymmetry in what is
 scoped to the chair vs. the person:
 
 | Scoped to the chair (`workerEstablishmentId`) | Scoped to the person (`workerId`) |
