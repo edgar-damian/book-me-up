@@ -171,6 +171,8 @@ create table public.worker_establishment (
   is_active        boolean     not null default true,
   started_at       timestamptz not null default now(),
   ended_at         timestamptz,
+  -- Set when the shop's owner declines the request; asking again clears it.
+  declined_at      timestamptz,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
 
@@ -178,6 +180,8 @@ create table public.worker_establishment (
     check (ended_at is null or ended_at > started_at),
   constraint worker_establishment_ended_inactive_ck
     check (ended_at is null or is_active = false),
+  constraint worker_establishment_declined_inactive_ck
+    check (declined_at is null or is_active = false),
 
   -- Needed as the target of appointment's composite FK (Section 2, appointment).
   constraint worker_establishment_composite_uniq
@@ -622,7 +626,7 @@ create policy worker_profile_owner_read on public.worker_profile
 
 -- Joining a shop is a request: the worker inserts the chair inactive and only
 -- an owner of that shop turns it on. An owner may add their own chair active,
--- never someone else's.
+-- never someone else's. A decline stamps declined_at, and asking again clears it.
 create policy worker_establishment_self_read on public.worker_establishment
   for select using (worker_id = current_worker_id() or owns_establishment(establishment_id));
 
@@ -645,7 +649,7 @@ create policy worker_establishment_self_delete on public.worker_establishment
 -- A policy can't compare a row to its old version, so which worker and which
 -- shop a chair belongs to are closed to updates by column instead.
 revoke update on public.worker_establishment from anon, authenticated;
-grant update (is_active, started_at, ended_at) on public.worker_establishment to authenticated;
+grant update (is_active, started_at, ended_at, declined_at) on public.worker_establishment to authenticated;
 
 create policy worker_schedule_day_self on public.worker_schedule_day
   for all using (

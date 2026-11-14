@@ -66,9 +66,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const params = new URL(request.url).searchParams;
   const edit = params.get("edit");
   const setup = !me.is_live || edit ? await loadSetup(request, token) : null;
-  // A worker with steps left goes back to them. One waiting on their shop has
-  // nothing left to do there, so they get the dashboard too.
-  if (!me.is_live && setup && setup.reached < STEPS.length - 1) {
+  // A worker with steps left goes back to them, and one their shop declined goes
+  // to the last step to choose another. One waiting on their shop has nothing
+  // left to do there, so they get the dashboard too.
+  if (!me.is_live && setup && (setup.reached < STEPS.length - 1 || setup.chair?.declined_at)) {
     throw redirect("/onboarding", { headers });
   }
   const editing = setup && (await editingFor(request, token, edit, params.get("chair"), setup));

@@ -115,6 +115,7 @@ class _MyChairs(BaseModel):
         id: UUID
         is_active: bool
         ended_at: AwareDatetime | None = None
+        declined_at: AwareDatetime | None = None
         establishment: _Shop
         worker_schedule_day: list[ScheduleDay]
 
@@ -190,6 +191,7 @@ class _ChairState(BaseModel):
 
     is_active: bool
     ended_at: AwareDatetime | None = None
+    declined_at: AwareDatetime | None = None
 
 
 _OWNED_COLS = _cols(_Owned)
@@ -352,6 +354,7 @@ def _to_chair(chair: _MyChairs.Chair) -> MyChair:
         id=chair.id,
         shop=MyChair.Shop(slug=shop.slug, name=shop.name),
         is_active=chair.is_active,
+        declined_at=chair.declined_at,
         schedule_days=sorted(chair.worker_schedule_day, key=lambda d: d.day_of_week),
     )
 
@@ -379,7 +382,7 @@ def get_chairs(caller: Caller) -> list[MyChair]:
 
 
 def _withdraw_waiting(db, worker_id: UUID, keep: UUID | None = None) -> None:
-    """Deletes the worker's join requests still waiting, except the one at the shop `keep`."""
+    """Deletes the worker's join requests waiting or declined, except the one at the shop `keep`."""
     # The worker_id filter matters: worker_establishment_self_delete also lets
     # an owner delete the chairs at their own shop.
     query = (
@@ -394,16 +397,18 @@ def _withdraw_waiting(db, worker_id: UUID, keep: UUID | None = None) -> None:
     _run_as_user(query, "withdraw waiting requests")
 
 
-def request_chair(caller: Caller, slug: str) -> MyChair | None:
+def request_chair(caller: Caller, slug: str, *, now_utc: datetime | None = None) -> MyChair | None:
     """
     Asks to join the live shop with this slug. While setting up, a worker waits on
-    one shop at a time, so a request still waiting at another shop is withdrawn. A
-    chair they already hold or wait on here comes back as it is. Each step is safe
-    to repeat, so a retry after a failure ends in the same place.
+    one shop at a time, so a request still waiting at another shop, or declined
+    there, is withdrawn. A chair they already hold or wait on here comes back as it
+    is, and a request this shop declined is sent again. Each step is safe to repeat,
+    so a retry after a failure ends in the same place.
 
     Args:
         - caller (Caller): from verify_token
         - slug (str): the shop's slug, already checked by JoinShop
+        - now_utc (datetime | None): override for the current instant
 
     Returns:
         - MyChair: the request, or the chair the caller already has at this shop
@@ -414,6 +419,9 @@ def request_chair(caller: Caller, slug: str) -> MyChair | None:
         - NotSignedIn: PostgREST rejected the token
         - DatabaseUnavailable: a query failed, or a row didn't match its model
     """
+    if now_utc is None:
+        now_utc = datetime.now(UTC)
+
     with user_db(caller.access_token) as db:
         resp = _run_as_user(
             db.table("establishment")
@@ -446,6 +454,18 @@ def request_chair(caller: Caller, slug: str) -> MyChair | None:
             ),
             None,
         )
+        if here is not None and here.declined_at is not None:
+            # started_at moves too, since the owner's inbox orders requests by it.
+            _run_as_user(
+                db.table("worker_establishment")
+                .update(
+                    {"declined_at": None, "started_at": now_utc.isoformat()},
+                    returning=ReturnMethod.minimal,
+                )
+                .eq("id", str(here.id)),
+                "ask again",
+            )
+            return _to_chair(here.model_copy(update={"declined_at": None}))
         if here is not None:
             return _to_chair(here)
 
@@ -970,6 +990,7 @@ def get_join_requests(caller: Caller) -> list[JoinRequest]:
             .in_("establishment_id", shops)
             .eq("is_active", False)
             .is_("ended_at", None)
+            .is_("declined_at", None)
             .order("started_at"),
             "join requests",
         )
@@ -987,9 +1008,9 @@ def answer_join_request(
     """
     Accepts or declines a request to join a shop the caller owns, as the caller.
     Accepting turns the chair on from now, which takes a worker who has finished
-    setting up live. Declining deletes the request and any hours set on it, so the
-    worker can ask again. Only a request still waiting changes, and accepting again
-    changes nothing.
+    setting up live. Declining stamps declined_at and keeps the request, hours
+    included, so the worker can see it was declined and ask again. Only a request
+    still waiting changes, and repeating an answer changes nothing.
 
     Args:
         - caller (Caller): from verify_token
@@ -1000,10 +1021,11 @@ def answer_join_request(
     Returns:
         - AnsweredJoinRequest: the chair and its answer
         - None: no chair with this id at a shop the caller owns, which includes a
-          request already declined or withdrawn. Route turns this into a 404.
+          request withdrawn. Route turns this into a 404.
 
     Raises:
-        - RequestClosed: declining a chair already accepted, or answering one that has ended
+        - RequestClosed: declining a chair already accepted, accepting one already
+          declined, or answering one that has ended
         - NotSignedIn: PostgREST rejected the token
         - DatabaseUnavailable: a query failed, or a row didn't match its model
     """
@@ -1021,15 +1043,16 @@ def answer_join_request(
                 {"is_active": True, "started_at": now_utc.isoformat()}
             )
         else:
-            write = db.table("worker_establishment").delete()
-        # The shop filter matters: the self_update and self_delete policies also
-        # match the caller's own chairs, and turning one of those on fails the
-        # policy's check, which would surface as a 503.
+            write = db.table("worker_establishment").update({"declined_at": now_utc.isoformat()})
+        # The shop filter matters: the self_update policy also matches the
+        # caller's own chairs, and turning one of those on fails the policy's
+        # check, which would surface as a 503.
         resp = _run_as_user(
             write.eq("id", str(chair_id))
             .in_("establishment_id", shops)
             .eq("is_active", False)
             .is_("ended_at", None)
+            .is_("declined_at", None)
             .select("id"),
             "answer join request",
         )
@@ -1055,6 +1078,8 @@ def answer_join_request(
         logger.exception("answered chair failed validation")
         raise DatabaseUnavailable("schema mismatch") from exc
     if answer is Answer.ACCEPTED and chair.is_active and chair.ended_at is None:
+        return AnsweredJoinRequest(id=chair_id, status=answer)
+    if answer is Answer.REJECTED and chair.declined_at is not None and chair.ended_at is None:
         return AnsweredJoinRequest(id=chair_id, status=answer)
     logger.info("%s for a chair that isn't waiting: %s", answer, chair_id)
     raise RequestClosed(answer)

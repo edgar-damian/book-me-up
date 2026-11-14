@@ -30,7 +30,7 @@ export function Dashboard({ chairs, chair, week, requests, editing, inbox, error
   // formMethod stays "POST" through the redirect that closes the dialog.
   const busy = useNavigation().formMethod === "POST";
   const shops = chairs.filter((c) => c.is_active);
-  const waiting = chairs.find((c) => !c.is_active);
+  const waiting = chairs.find((c) => !c.is_active && !c.declined_at);
   const unanswered = requests.length;
 
   return (

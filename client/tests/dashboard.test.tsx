@@ -47,12 +47,14 @@ const JOINED: MyChair = {
   id: "0000000c-0000-4000-8000-000000000002",
   shop: { slug: "regular-cutz", name: "Regular Cutz" },
   is_active: true,
+  declined_at: null,
   schedule_days: [MONDAY],
 };
 const WAITING: MyChair = {
   id: "0000000c-0000-4000-8000-000000000001",
   shop: { slug: "krusty-fadez", name: "Krusty Fadez" },
   is_active: false,
+  declined_at: null,
   schedule_days: [],
 };
 /** A second shop the worker has joined. */
@@ -60,6 +62,7 @@ const FADE_LAB: MyChair = {
   id: "0000000c-0000-4000-8000-000000000003",
   shop: { slug: "fade-lab", name: "Fade Lab" },
   is_active: true,
+  declined_at: null,
   schedule_days: [MONDAY],
 };
 
@@ -437,6 +440,7 @@ describe("dashboard loader", () => {
             id: "0000000c-0000-4000-8000-000000000001",
             shop: { slug: "krusty-fadez", name: "Krusty Fadez" },
             is_active: false,
+            declined_at: null,
             schedule_days: [
               {
                 day_of_week: 1,
@@ -469,6 +473,22 @@ describe("dashboard loader", () => {
 
     // No shop has accepted them yet, so there is no week to ask for.
     expect(result.data).toMatchObject({ editing: null, chair: null, week: null });
+  });
+
+  it("sends a worker their shop declined to /onboarding, even with every step done", async () => {
+    stubApi({
+      "/auth/me": { status: 200, body: { ...ME, is_live: false } },
+      "/dashboard/profile": { status: 200, body: { ...PROFILE, is_active: false } },
+      "/dashboard/chairs": {
+        status: 200,
+        body: [{ ...WAITING, declined_at: "2026-10-30T13:00:00Z", schedule_days: [MONDAY] }],
+      },
+      "/dashboard/services": { status: 200, body: [SKIN_FADE] },
+    });
+
+    const response = await thrown(load(await cookie(3600)));
+
+    expect(response.headers.get("Location")).toBe("/onboarding");
   });
 
   /** What the API holds for a live worker: a profile, a service, and these chairs, each with WEEK. */

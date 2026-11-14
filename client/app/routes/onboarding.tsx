@@ -65,9 +65,10 @@ function withoutShop(url: URL) {
   return `${url.pathname}?${params}`;
 }
 
-// Picking Join or Add only moves ?shop=, so there is nothing to reload.
+// Picking Join or Add only moves ?shop=, so there is nothing to reload. A link to
+// the page already open, like Check again, still reloads.
 export function shouldRevalidate({ currentUrl, nextUrl, formMethod, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) {
-  if (!formMethod && withoutShop(currentUrl) === withoutShop(nextUrl)) return false;
+  if (!formMethod && currentUrl.href !== nextUrl.href && withoutShop(currentUrl) === withoutShop(nextUrl)) return false;
   return defaultShouldRevalidate;
 }
 

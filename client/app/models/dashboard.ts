@@ -80,7 +80,8 @@ export type SaveSchedule = {
 
 /**
  * A shop the signed-in worker works at, or has asked to join, with the hours
- * set there. is_active is false until the shop's owner accepts.
+ * set there. is_active is false until the shop's owner accepts, and
+ * declined_at is set once the owner declines.
  */
 export type MyChair = {
   id: string;
@@ -89,6 +90,7 @@ export type MyChair = {
     name: string;
   };
   is_active: boolean;
+  declined_at: string | null;
   schedule_days: ScheduleDay[];
 };
 

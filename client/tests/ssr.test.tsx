@@ -118,6 +118,7 @@ describe("server rendering", () => {
       id: "0000000c-0000-4000-8000-000000000001",
       shop: { slug: "krusty-fadez", name: "Krusty Fadez" },
       is_active: true,
+      declined_at: null,
       schedule_days: [],
     };
     const Stub = createRoutesStub([
@@ -145,6 +146,7 @@ describe("server rendering", () => {
     id: "0000000c-0000-4000-8000-000000000001",
     shop: { slug: "krusty-fadez", name: "Krusty Fadez" },
     is_active: true,
+    declined_at: null,
     schedule_days: [],
   };
 

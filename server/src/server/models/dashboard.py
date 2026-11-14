@@ -156,7 +156,8 @@ class SaveSchedule(BaseModel):
 class MyChair(BaseModel):
     """
     A shop the caller works at, or has asked to join, with the hours set there.
-    is_active is false until the shop's owner accepts.
+    is_active is false until the shop's owner accepts, and declined_at is set once
+    the owner declines.
     """
 
     class Shop(BaseModel):
@@ -166,6 +167,7 @@ class MyChair(BaseModel):
     id: UUID
     shop: Shop
     is_active: bool
+    declined_at: AwareDatetime | None = None
     schedule_days: list[ScheduleDay]
 
 

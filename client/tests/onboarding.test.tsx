@@ -51,13 +51,17 @@ const WAITING: MyChair = {
   id: "0000000c-0000-4000-8000-000000000001",
   shop: { slug: "krusty-fadez", name: "Krusty Fadez" },
   is_active: false,
+  declined_at: null,
   schedule_days: [],
 };
 const WITH_HOURS: MyChair = { ...WAITING, schedule_days: [MONDAY] };
+/** Krusty Fadez said no before any hours were set. */
+const DECLINED: MyChair = { ...WAITING, declined_at: "2026-10-30T13:00:00Z" };
 const JOINED: MyChair = {
   id: "0000000c-0000-4000-8000-000000000002",
   shop: { slug: "regular-cutz", name: "Regular Cutz" },
   is_active: true,
+  declined_at: null,
   schedule_days: [MONDAY],
 };
 const SKIN_FADE: MyService = {
@@ -193,6 +197,15 @@ describe("onboarding loader", () => {
     expect(result.data.live).toBe(false);
   });
 
+  it("opens the last step once the shop declines, whatever steps are left", async () => {
+    stubApi(saved(PROFILE, [DECLINED]));
+
+    const result = await load("", await cookie(3600));
+
+    expect(result.data.step).toBe("live");
+    expect(result.data.chair).toEqual(DECLINED);
+  });
+
   it.each([
     { saved: "a shop request", chairs: [WAITING], services: [], step: "schedule" },
     { saved: "hours", chairs: [WITH_HOURS], services: [], step: "services" },
@@ -281,6 +294,10 @@ describe("onboarding revalidation", () => {
   it("skips the loader when only the shop choice changes", () => {
     expect(shouldRevalidate(args("/onboarding?step=shop", "/onboarding?step=shop&shop=new"))).toBe(false);
     expect(shouldRevalidate(args("/onboarding?shop=new", "/onboarding"))).toBe(false);
+  });
+
+  it("reloads on a link to the page already open, like Check again", () => {
+    expect(shouldRevalidate(args("/onboarding?step=live", "/onboarding?step=live"))).toBe(true);
   });
 
   it("reloads on a step change or a submitted form", () => {
@@ -415,6 +432,7 @@ describe("onboarding action", () => {
       id: "0000000c-0000-4000-8000-000000000003",
       shop: { slug: "main-street-studio", name: "Main Street Studio" },
       is_active: true,
+      declined_at: null,
       schedule_days: [],
     };
     const fetchMock = stubApi({ "/dashboard/shops": { status: 201, body: owned } });
@@ -684,6 +702,15 @@ describe("onboarding page", () => {
       "href",
       "/onboarding?step=profile",
     );
+  });
+
+  it("marks a declined request on the shop step, its link left out", async () => {
+    renderPage("shop", { profile: PROFILE, chairs: [DECLINED] });
+
+    expect(await screen.findByText("Krusty Fadez")).toBeInTheDocument();
+    expect(screen.getByText("Not accepted")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting")).not.toBeInTheDocument();
+    expect(field("Shop link")).toHaveValue("");
   });
 
   it("flags an empty shop link on Next and posts nothing", async () => {
@@ -1159,6 +1186,23 @@ describe("onboarding page", () => {
       "/onboarding?step=services",
     );
     expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+  });
+
+  it("tells a worker the shop declined them, with a way to add a shop or ask another", async () => {
+    renderPage("live", { profile: PROFILE, chairs: [DECLINED], chair: DECLINED, services: [SKIN_FADE] });
+
+    expect(await screen.findByText("Step 5 of 5")).toBeInTheDocument();
+    expect(screen.getByText("Not accepted")).toBeInTheDocument();
+    expect(screen.getByText("Krusty Fadez has not accepted you.")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add my shop" })).toHaveAttribute(
+      "href",
+      "/onboarding?step=shop&shop=new",
+    );
+    expect(screen.getByRole("link", { name: "Ask another shop" })).toHaveAttribute(
+      "href",
+      "/onboarding?step=shop",
+    );
   });
 
   it("shows a live worker their shop, their services and their booking link", async () => {

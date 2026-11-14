@@ -24,6 +24,7 @@ from server.supabase.dashboard import (
     answer_request,
     get_time_off,
     get_week,
+    request_chair,
     save_time_off,
 )
 
@@ -333,12 +334,13 @@ TUESDAY = {
 }
 
 
-def chair(shop, is_active=False, ended_at=None, days=()):
+def chair(shop, is_active=False, ended_at=None, declined_at=None, days=()):
     """One worker_establishment row with its shop and hours embedded."""
     return {
         "id": CHAIR_IDS[shop["id"]],
         "is_active": is_active,
         "ended_at": ended_at,
+        "declined_at": declined_at,
         "establishment": shop,
         "worker_schedule_day": list(days),
     }
@@ -361,6 +363,7 @@ def join(db):
         ].select.return_value.eq.return_value.eq.return_value.limit.return_value,
         delete=chairs.delete,
         insert=chairs.insert,
+        update=chairs.update,
     )
 
 
@@ -381,17 +384,32 @@ def test_chairs_lists_waiting_and_joined_but_not_ended(client, db):
             "id": CHAIR_IDS[KRUSTY["id"]],
             "shop": {"slug": "krusty-fadez", "name": "Krusty Fadez"},
             "is_active": False,
+            "declined_at": None,
             "schedule_days": [MONDAY, TUESDAY],
         },
         {
             "id": CHAIR_IDS[REGULAR["id"]],
             "shop": {"slug": "regular-cutz", "name": "Regular Cutz"},
             "is_active": True,
+            "declined_at": None,
             "schedule_days": [],
         },
     ]
     db.factory.return_value.table.assert_called_once_with("worker_profile")
     db.table.select.return_value.eq.assert_called_once_with("user_id", CALLER.user_id)
+
+
+def test_chairs_marks_a_declined_request(client, db):
+    db.read.execute.return_value = rows(
+        mine(chair(KRUSTY, declined_at="2026-10-30T13:00:00Z", days=[MONDAY]))
+    )
+
+    response = client.get(CHAIRS_URL)
+
+    assert response.status_code == 200
+    assert response.json()[0]["is_active"] is False
+    assert response.json()[0]["declined_at"] == "2026-10-30T13:00:00Z"
+    assert response.json()[0]["schedule_days"] == [MONDAY]
 
 
 def test_chairs_without_a_profile_is_empty(client, db):
@@ -429,6 +447,7 @@ def test_join_sends_the_shop_a_waiting_request(client, db, join):
         "id": NEW_CHAIR,
         "shop": {"slug": "krusty-fadez", "name": "Krusty Fadez"},
         "is_active": False,
+        "declined_at": None,
         "schedule_days": [],
     }
     join.shops.select.return_value.eq.assert_called_once_with("slug", "krusty-fadez")
@@ -468,6 +487,28 @@ def test_join_again_sends_nothing_new(client, db, join, joined):
     assert response.json()["id"] == CHAIR_IDS[KRUSTY["id"]]
     assert response.json()["is_active"] is joined
     assert response.json()["schedule_days"] == [MONDAY]
+    join.insert.assert_not_called()
+    join.update.assert_not_called()
+
+
+def test_join_again_after_a_decline_sends_the_request_again(db, join):
+    join.lookup.execute.return_value = rows(KRUSTY)
+    db.read.execute.return_value = rows(
+        mine(chair(KRUSTY, declined_at="2026-10-29T18:00:00Z", days=[MONDAY]))
+    )
+
+    sent = request_chair(CALLER, "krusty-fadez", now_utc=NOW)
+
+    assert sent.id == UUID(CHAIR_IDS[KRUSTY["id"]])
+    assert sent.declined_at is None
+    assert sent.schedule_days[0].day_of_week == MONDAY["day_of_week"]
+    assert join.update.call_args == call(
+        {"declined_at": None, "started_at": "2026-10-30T13:00:00+00:00"},
+        returning=ReturnMethod.minimal,
+    )
+    by_id = join.update.return_value.eq
+    assert by_id.call_args == call("id", CHAIR_IDS[KRUSTY["id"]])
+    by_id.return_value.execute.assert_called_once()
     join.insert.assert_not_called()
 
 
@@ -582,6 +623,7 @@ def test_new_shop_makes_the_caller_its_owner_with_a_joined_chair(client, db, new
         "id": NEW_CHAIR,
         "shop": {"slug": "main-street-studio", "name": "Main Street Studio"},
         "is_active": True,
+        "declined_at": None,
         "schedule_days": [],
     }
     new_shop.rpc.assert_called_once_with("create_establishment", NEW_SHOP)
@@ -656,6 +698,7 @@ def test_posting_the_same_shop_again_returns_its_chair(client, db, new_shop):
         "id": CHAIR_IDS[KRUSTY["id"]],
         "shop": {"slug": "krusty-fadez", "name": "Krusty Fadez"},
         "is_active": True,
+        "declined_at": None,
         "schedule_days": [MONDAY],
     }
     by_user = new_shop.owners.select.return_value.eq
@@ -1240,10 +1283,13 @@ def inbox(db):
     chairs = db.tables["worker_establishment"]
 
     def guarded(write):
-        return write.return_value.eq.return_value.in_.return_value.eq.return_value.is_.return_value
+        waiting = write.return_value.eq.return_value.in_.return_value.eq.return_value
+        return waiting.is_.return_value.is_.return_value
 
-    listed = chairs.select.return_value.in_.return_value.eq.return_value.is_.return_value.order
-    accept, decline = guarded(chairs.update), guarded(chairs.delete)
+    by_shop = chairs.select.return_value.in_.return_value
+    listed = by_shop.eq.return_value.is_.return_value.is_.return_value.order
+    # Both answers are updates, so they share one chain; the update's body tells them apart.
+    accept = decline = guarded(chairs.update)
     reread = chairs.select.return_value.eq.return_value.in_.return_value.limit.return_value
     for query in (listed.return_value, accept.select.return_value, decline.select.return_value):
         query.execute.return_value = rows()
@@ -1275,7 +1321,9 @@ def test_inbox_lists_the_requests_waiting_at_the_callers_shops(client, db, inbox
     assert inbox.chairs.select.call_args == call(REQUEST_COLS)
     assert by_shop.call_args == call("establishment_id", [KRUSTY["id"]])
     assert by_shop.return_value.eq.call_args == call("is_active", False)
-    assert by_shop.return_value.eq.return_value.is_.call_args == call("ended_at", None)
+    not_ended = by_shop.return_value.eq.return_value.is_
+    assert not_ended.call_args == call("ended_at", None)
+    assert not_ended.return_value.is_.call_args == call("declined_at", None)
     assert inbox.listed.call_args == call("started_at")
 
 
@@ -1319,10 +1367,12 @@ def assert_guarded(write):
     """The write only touches the waiting chair, and only at the caller's shops."""
     by_id = write.return_value.eq
     by_shop = by_id.return_value.in_
+    not_ended = by_shop.return_value.eq.return_value.is_
     assert by_id.call_args == call("id", WAITING_CHAIR)
     assert by_shop.call_args == call("establishment_id", [KRUSTY["id"]])
     assert by_shop.return_value.eq.call_args == call("is_active", False)
-    assert by_shop.return_value.eq.return_value.is_.call_args == call("ended_at", None)
+    assert not_ended.call_args == call("ended_at", None)
+    assert not_ended.return_value.is_.call_args == call("declined_at", None)
 
 
 def test_accepting_gives_the_worker_the_chair_from_now(db, inbox):
@@ -1340,15 +1390,16 @@ def test_accepting_gives_the_worker_the_chair_from_now(db, inbox):
     inbox.chairs.select.assert_not_called()
 
 
-def test_declining_deletes_the_waiting_request(db, inbox):
+def test_declining_marks_the_request_declined(db, inbox):
     inbox.decline.select.return_value.execute.return_value = rows({"id": WAITING_CHAIR})
 
     answered = answer_join_request(CALLER, UUID(WAITING_CHAIR), Answer.REJECTED, now_utc=NOW)
 
     assert answered.model_dump(mode="json") == {"id": WAITING_CHAIR, "status": "REJECTED"}
-    inbox.chairs.delete.assert_called_once_with()
-    assert_guarded(inbox.chairs.delete)
-    inbox.chairs.update.assert_not_called()
+    assert inbox.chairs.update.call_args == call({"declined_at": "2026-10-30T13:00:00+00:00"})
+    assert_guarded(inbox.chairs.update)
+    assert inbox.decline.select.call_args == call("id")
+    inbox.chairs.delete.assert_not_called()
     inbox.chairs.select.assert_not_called()
 
 
@@ -1368,10 +1419,19 @@ def test_join_answer_sends_the_chair_and_its_answer(client, db, inbox, status):
     [
         ({"is_active": True, "ended_at": None}, "ACCEPTED", 200),
         ({"is_active": True, "ended_at": None}, "REJECTED", 409),
+        ({"is_active": False, "declined_at": "2026-10-29T18:00:00Z"}, "REJECTED", 200),
+        ({"is_active": False, "declined_at": "2026-10-29T18:00:00Z"}, "ACCEPTED", 409),
         ({"is_active": False, "ended_at": "2026-10-01T00:00:00+00:00"}, "ACCEPTED", 409),
         ({"is_active": False, "ended_at": "2026-10-01T00:00:00+00:00"}, "REJECTED", 409),
     ],
-    ids=["accepted-again", "decline-after-accept", "accept-after-end", "decline-after-end"],
+    ids=[
+        "accepted-again",
+        "decline-after-accept",
+        "declined-again",
+        "accept-after-decline",
+        "accept-after-end",
+        "decline-after-end",
+    ],
 )
 def test_answering_a_request_that_isnt_waiting_anymore(client, db, inbox, state, asked, code):
     inbox.reread.execute.return_value = rows(state)
@@ -1379,8 +1439,10 @@ def test_answering_a_request_that_isnt_waiting_anymore(client, db, inbox, state,
     response = client.put(join_answer_url(), json={"status": asked})
 
     assert response.status_code == code
+    if code == 200:
+        assert response.json() == {"id": WAITING_CHAIR, "status": asked}
     by_id = inbox.chairs.select.return_value.eq
-    assert inbox.chairs.select.call_args == call("is_active, ended_at")
+    assert inbox.chairs.select.call_args == call("is_active, ended_at, declined_at")
     assert by_id.call_args == call("id", WAITING_CHAIR)
     assert by_id.return_value.in_.call_args == call("establishment_id", [KRUSTY["id"]])
 
