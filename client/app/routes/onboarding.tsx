@@ -1,13 +1,14 @@
-import { data, redirect } from "react-router";
+import { data, redirect, type ShouldRevalidateFunctionArgs } from "react-router";
 import type { Route } from "./+types/onboarding";
 import { Onboarding } from "../pages/Onboarding";
 import type { Me } from "~/models/auth";
 import type { SaveWorkerProfile } from "~/models/dashboard";
 import { authorize } from "~/auth.server";
-import { apiGet, loadSetup, requestShop, saveProfile, saveSchedule, saveServices } from "~/dashboard.server";
+import { apiGet, createShop, loadSetup, requestShop, saveProfile, saveSchedule, saveServices } from "~/dashboard.server";
 import { STEPS } from "~/widgets/Dashboard/onboarding";
 import { PROFILE_FORM } from "~/widgets/Dashboard/workerProfile";
 import { SHOP_FORM } from "~/widgets/Dashboard/connectShop";
+import { ADD_SHOP_FORM } from "~/widgets/Dashboard/addShop";
 import { HOURS_FORM } from "~/widgets/Dashboard/schedule";
 import { SERVICES_FORM } from "~/widgets/Dashboard/services";
 import { toSlug } from "~/widgets/kit";
@@ -57,6 +58,19 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
 }
 
+/** URL path and search, without the ?shop= choice the loader never reads. */
+function withoutShop(url: URL) {
+  const params = new URLSearchParams(url.search);
+  params.delete("shop");
+  return `${url.pathname}?${params}`;
+}
+
+// Picking Join or Add only moves ?shop=, so there is nothing to reload.
+export function shouldRevalidate({ currentUrl, nextUrl, formMethod, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) {
+  if (!formMethod && withoutShop(currentUrl) === withoutShop(nextUrl)) return false;
+  return defaultShouldRevalidate;
+}
+
 /** What saves each step's form, named by its intent, and the step to open after it. */
 function stepFor(intent: FormDataEntryValue | null) {
   switch (intent) {
@@ -64,6 +78,8 @@ function stepFor(intent: FormDataEntryValue | null) {
       return { save: saveProfile, next: "shop" };
     case SHOP_FORM:
       return { save: requestShop, next: "schedule" };
+    case ADD_SHOP_FORM:
+      return { save: createShop, next: "schedule" };
     case HOURS_FORM:
       return { save: saveSchedule, next: "services" };
     case SERVICES_FORM:

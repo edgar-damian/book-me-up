@@ -89,6 +89,29 @@ describe("server rendering", () => {
     expect(html).toContain("<h1");
   });
 
+  it("renders the new shop form without a browser", () => {
+    const Stub = createRoutesStub([
+      {
+        path: "/onboarding",
+        Component: () => (
+          <Onboarding
+            step="shop"
+            profile={profile}
+            chairs={[]}
+            chair={null}
+            services={[]}
+            live={false}
+            error={null}
+          />
+        ),
+      },
+    ]);
+    const html = renderToString(<Stub initialEntries={["/onboarding?shop=new"]} />);
+
+    expect(html).toContain('name="timezone"');
+    expect(html).toContain('name="hours-sun-open"');
+  });
+
   // The booking link's origin comes from the browser, so the server renders the link without it.
   it("renders the done screen without a browser", () => {
     const chair = {

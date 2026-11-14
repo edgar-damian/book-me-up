@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from server.models.dashboard import (
     AnsweredJoinRequest,
     AnswerRequest,
+    CreateShop,
     JoinRequest,
     JoinShop,
     MyAppointment,
@@ -30,11 +31,13 @@ from server.supabase.auth import Caller
 from server.supabase.dashboard import (
     InvalidProfile,
     InvalidService,
+    InvalidShop,
     ProfileMissing,
     RequestClosed,
     SlugTaken,
     answer_join_request,
     answer_request,
+    create_shop,
     get_chairs,
     get_join_requests,
     get_profile,
@@ -163,6 +166,50 @@ def write_join_request(body: JoinShop, caller: Annotated[Caller, Depends(current
             detail="That's not an existing shop",
         )
     return chair
+
+
+@router.post(
+    "/shops",
+    response_model=MyChair,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: {"description": "Missing, invalid, or expired access token"},
+        409: {"description": "Another shop uses this slug, or no worker profile yet"},
+        422: {
+            "description": (
+                "A blank name or address, an unusable email or phone, a malformed slug, "
+                "an unknown time zone, or bad hours"
+            )
+        },
+    },
+)
+def write_new_shop(body: CreateShop, caller: Annotated[Caller, Depends(current_user)]):
+    """
+    Creates a live shop with the caller as its owner and their own chair there,
+    already joined. A request still waiting at another shop is withdrawn. Posting
+    the same shop again returns the chair it made.
+    """
+    try:
+        return create_shop(caller, body)
+    except InvalidShop as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+    except SlugTaken:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That link is taken, try another",
+        )
+    except ProfileMissing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Set up your profile first",
+        )
+    except NotSignedIn:
+        raise _not_signed_in()
+    except DatabaseUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable",
+        )
 
 
 @router.get(

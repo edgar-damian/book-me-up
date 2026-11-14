@@ -16,6 +16,7 @@ from pydantic import AwareDatetime, BaseModel, ValidationError
 from server.models.dashboard import (
     Answer,
     AnsweredJoinRequest,
+    CreateShop,
     JoinRequest,
     MyAppointment,
     MyChair,
@@ -53,9 +54,11 @@ logger = logging.getLogger(__name__)
 
 _UNIQUE_VIOLATION = "23505"
 _SLUG_KEY = "worker_profile_slug_key"
+_SHOP_SLUG_KEY = "establishment_slug_key"
 
 # The bio and description caps match the maxLength on those form boxes.
 _BIO_CAP = 1000
+_SHOP_TEXT_CAP = 1000
 _SERVICE_TEXT_CAP = 1000
 _SERVICE_TITLE_CAP = 100
 
@@ -66,12 +69,19 @@ class InvalidProfile(ValueError):
     """A blank name or an unusable email. Route turns this into a 422."""
 
 
+class InvalidShop(ValueError):
+    """A blank name or address, or an unusable email. Route turns this into a 422."""
+
+
 class SlugTaken(ValueError):
-    """Another worker's page already uses this slug. Route turns this into a 409."""
+    """Another worker's page or another shop already uses this slug. Route turns this into a 409."""
 
 
 class ProfileMissing(RuntimeError):
-    """The caller has no worker profile to join a shop with. Route turns this into a 409."""
+    """
+    The caller has no worker profile to join or create a shop with. Route turns
+    this into a 409.
+    """
 
 
 class InvalidService(ValueError):
@@ -197,13 +207,14 @@ _STRETCH_COLS = _cols(_Stretch)
 _BOOKED_COLS = _cols(_Booked, shop=f"shop:establishment({_cols(TimeOffConflict.Shop)})")
 
 
-def _run_profile_write(query, what: str):
+def _run_slug_write(query, what: str, slug_key: str):
     """
     _run_as_user, but tells a taken slug apart from a real failure.
 
     Args:
         - query: the PostgREST query to execute
         - what (str): label for the log line
+        - slug_key (str): the unique constraint that guards the slug
 
     Returns:
         - The PostgREST response
@@ -216,7 +227,7 @@ def _run_profile_write(query, what: str):
     try:
         return query.execute()
     except APIError as exc:
-        if exc.code == _UNIQUE_VIOLATION and _SLUG_KEY in str(exc.message):
+        if exc.code == _UNIQUE_VIOLATION and slug_key in str(exc.message):
             logger.info("%s hit a taken slug", what)
             raise SlugTaken(str(exc)) from exc
         if exc.code in _TOKEN_REJECTED:
@@ -297,16 +308,18 @@ def save_profile(caller: Caller, profile: SaveWorkerProfile) -> MyWorkerProfile:
         "public_phone": profile.public_phone,
     }
     with user_db(caller.access_token) as db:
-        resp = _run_profile_write(
+        resp = _run_slug_write(
             db.table("worker_profile").update(row).eq("user_id", caller.user_id),
             "worker_profile update",
+            _SLUG_KEY,
         )
         if not resp.data:
-            resp = _run_profile_write(
+            resp = _run_slug_write(
                 db.table("worker_profile").insert(
                     row | {"user_id": caller.user_id, "is_active": False}
                 ),
                 "worker_profile insert",
+                _SLUG_KEY,
             )
 
     if not resp.data:
@@ -365,6 +378,22 @@ def get_chairs(caller: Caller) -> list[MyChair]:
     return [_to_chair(c) for c in mine.worker_establishment if c.ended_at is None]
 
 
+def _withdraw_waiting(db, worker_id: UUID, keep: UUID | None = None) -> None:
+    """Deletes the worker's join requests still waiting, except the one at the shop `keep`."""
+    # The worker_id filter matters: worker_establishment_self_delete also lets
+    # an owner delete the chairs at their own shop.
+    query = (
+        db.table("worker_establishment")
+        .delete(returning=ReturnMethod.minimal)
+        .eq("worker_id", str(worker_id))
+        .eq("is_active", False)
+        .is_("ended_at", None)
+    )
+    if keep is not None:
+        query = query.neq("establishment_id", str(keep))
+    _run_as_user(query, "withdraw waiting requests")
+
+
 def request_chair(caller: Caller, slug: str) -> MyChair | None:
     """
     Asks to join the live shop with this slug. While setting up, a worker waits on
@@ -407,17 +436,7 @@ def request_chair(caller: Caller, slug: str) -> MyChair | None:
         if mine is None:
             raise ProfileMissing()
 
-        # The worker_id filter matters: worker_establishment_self_delete also lets
-        # an owner delete the chairs at their own shop.
-        _run_as_user(
-            db.table("worker_establishment")
-            .delete(returning=ReturnMethod.minimal)
-            .eq("worker_id", str(mine.id))
-            .eq("is_active", False)
-            .is_("ended_at", None)
-            .neq("establishment_id", str(shop.id)),
-            "withdraw waiting requests",
-        )
+        _withdraw_waiting(db, mine.id, keep=shop.id)
 
         here = next(
             (
@@ -449,6 +468,103 @@ def request_chair(caller: Caller, slug: str) -> MyChair | None:
     return _to_chair(
         _MyChairs.Chair(id=added.id, is_active=False, establishment=shop, worker_schedule_day=[])
     )
+
+
+def _owned_chair(db, caller: Caller, mine: _MyChairs, slug: str) -> _MyChairs.Chair | None:
+    """The caller's current chair at the shop with this slug, when the caller owns that shop."""
+    current = (c for c in mine.worker_establishment if c.ended_at is None)
+    here = next((c for c in current if c.establishment.slug == slug), None)
+    if here is None:
+        return None
+    resp = _run_as_user(
+        db.table("establishment_owner")
+        .select("id")
+        .eq("user_id", caller.user_id)
+        .eq("establishment_id", str(here.establishment.id))
+        .limit(1),
+        "shop owner",
+    )
+    return here if resp.data else None
+
+
+def create_shop(caller: Caller, shop: CreateShop) -> MyChair:
+    """
+    Creates a live shop owned by the caller, with the caller's own chair there
+    already active, in one transaction. Join requests still waiting at other
+    shops are withdrawn, as joining a shop does. Posting the same shop again
+    returns the chair it made, so a retry after a failure ends in the same place.
+
+    Args:
+        - caller (Caller): from verify_token
+        - shop (CreateShop): what the add-shop form posted
+
+    Returns:
+        - MyChair: the caller's chair at the shop
+
+    Raises:
+        - InvalidShop: a blank name or address, or an unusable email, checked
+          before any query
+        - ProfileMissing: the caller has no worker profile yet
+        - SlugTaken: a shop the caller doesn't own already uses this slug
+        - NotSignedIn: PostgREST rejected the token
+        - DatabaseUnavailable: a query failed, or a row didn't match its model
+    """
+    text = {
+        "name": _clean(shop.name, _NAME_CAP),
+        "address": _clean(shop.address, _NAME_CAP),
+        "city": _clean(shop.city, _NAME_CAP),
+        "state": _clean(shop.state, _NAME_CAP),
+        "zip": _clean(shop.zip, _NAME_CAP),
+    }
+    if not all(text.values()):
+        raise InvalidShop("Fill in the shop's name and address")
+    email = None
+    if shop.email is not None:
+        email = _clean_email(shop.email)
+        if email is None:
+            raise InvalidShop("Enter a valid email address")
+
+    params = text | {
+        "slug": shop.slug,
+        "timezone": shop.timezone,
+        "phone": shop.phone,
+        "email": email,
+        "description": _clean(shop.description, _SHOP_TEXT_CAP),
+        "hours": {day: hours.model_dump() for day, hours in shop.hours.items()} or None,
+    }
+
+    with user_db(caller.access_token) as db:
+        mine = _load_chairs(db, caller)
+        if mine is None:
+            raise ProfileMissing()
+
+        try:
+            resp = _run_slug_write(
+                db.rpc("create_establishment", params), "create shop", _SHOP_SLUG_KEY
+            )
+        except SlugTaken:
+            here = _owned_chair(db, caller, mine, shop.slug)
+            if here is None:
+                raise
+            logger.info("create shop repeated for a shop the caller owns: %s", shop.slug)
+            chair = _to_chair(here)
+        else:
+            try:
+                chair_id = UUID(str(resp.data))
+            except ValueError as exc:
+                logger.exception("create_establishment returned %r", resp.data)
+                raise DatabaseUnavailable("schema mismatch") from exc
+            chair = MyChair(
+                id=chair_id,
+                shop=MyChair.Shop(slug=shop.slug, name=text["name"]),
+                is_active=True,
+                schedule_days=[],
+            )
+
+        # Last, so a taken slug never costs the worker a request still waiting.
+        _withdraw_waiting(db, mine.id)
+
+    return chair
 
 
 def save_schedule(

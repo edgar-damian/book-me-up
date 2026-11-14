@@ -80,7 +80,9 @@ and every rule lives in the matching `supabase/` module.
 | Worker dashboard | `routes/dashboard.py` (`/dashboard` prefix) | `supabase/dashboard.py` | `models/dashboard.py` |
 
 Every dashboard query runs as the caller through `user_db`, so RLS is the boundary there
-too; none of them uses `admin_db`.
+too; none of them uses `admin_db`. The one RPC is `create_shop()` calling
+`create_establishment()`: a new shop, its owner row, and the creator's chair must land in
+one transaction, and only that security-definer function can write the owner row.
 
 Request path: route → query module → Supabase → `to_public()` / `model_validate()` →
 Pydantic response model.
@@ -155,12 +157,14 @@ is constructed**:
 - `BlankFirstName` → **422**. Booking flow only; checked before any query runs.
 - `InvalidSignup` → **422**. Waitlist only; a blank name or unusable email, checked before
   any query runs.
-- `SlugTaken` → **409**. Dashboard only; another worker's page already uses the slug.
-  `_run_profile_write()` pulls it out of SQLSTATE `23505` by the constraint name.
+- `SlugTaken` → **409**. Dashboard only; another worker's page or another shop already uses
+  the slug. `_run_slug_write()` pulls it out of SQLSTATE `23505` by the constraint name.
 - `InvalidProfile` → **422**. Dashboard only; a blank name or unusable email, checked
   before any query runs.
-- `ProfileMissing` → **409**. Dashboard only; joining a shop or saving services before the
-  worker has a profile.
+- `InvalidShop` → **422**. Dashboard only; a blank shop name or address, or an unusable
+  email, checked before any query runs.
+- `ProfileMissing` → **409**. Dashboard only; joining or creating a shop, or saving services
+  before the worker has a profile.
 - `InvalidService` → **422**. Dashboard only; a service name with nothing visible left,
   checked before any query runs. Removing a service turns it off (`is_active = false`)
   rather than deleting it, so its appointments keep their history.
@@ -406,6 +410,10 @@ live shop, hours at that chair, and at least one active service, whichever lands
 shop approving a finished worker publishes their page with no further step. Workers can't
 update `isActive` themselves (it's left out of the column grant), and nothing turns a page
 back off.
+
+A shop a worker creates (`POST /dashboard/shops`) is live from the start, with the worker
+as its owner and their chair there already active, so their page goes live as soon as they
+have hours there and a service.
 
 ### Availability is computed, never stored
 

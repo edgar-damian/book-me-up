@@ -1,10 +1,12 @@
-import { useNavigation } from "react-router";
+import { useNavigation, useSearchParams } from "react-router";
 import { Container } from "~/widgets/kit";
 import { SiteHeader } from "~/widgets/siteHeader";
 import { CompanyFooter } from "~/widgets/companyFooter";
 import { OnboardingWizard, type StepKey } from "~/widgets/Dashboard/onboarding";
 import { PROFILE_FORM, WorkerProfileForm } from "~/widgets/Dashboard/workerProfile";
-import { ConnectShopForm, SHOP_FORM } from "~/widgets/Dashboard/connectShop";
+import { SHOP_FORM } from "~/widgets/Dashboard/connectShop";
+import { ADD_SHOP_FORM } from "~/widgets/Dashboard/addShop";
+import { ShopStep } from "~/widgets/Dashboard/shopStep";
 import { HOURS_FORM, WorkerHoursForm } from "~/widgets/Dashboard/schedule";
 import { SERVICES_FORM, ServicesForm } from "~/widgets/Dashboard/services";
 import { GoLive } from "~/widgets/Dashboard/goLive";
@@ -33,9 +35,11 @@ type Props = {
   error: string | null;
 };
 
-function StepBody({ step, profile, chairs, chair, services, live, error }: Props) {
+type BodyProps = Props & { adding: boolean; onChoose: (add: boolean) => void };
+
+function StepBody({ step, profile, chairs, chair, services, live, error, adding, onChoose }: BodyProps) {
   if (step === "profile") return <WorkerProfileForm profile={profile} error={error} />;
-  if (step === "shop") return <ConnectShopForm chairs={chairs} error={error} />;
+  if (step === "shop") return <ShopStep adding={adding} onChoose={onChoose} chairs={chairs} error={error} />;
   if (step === "schedule" && chair) return <WorkerHoursForm chair={chair} error={error} />;
   if (step === "services") return <ServicesForm services={services} error={error} />;
   return <GoLive live={live} chairs={chairs} chair={chair} services={services} slug={profile.slug} />;
@@ -44,6 +48,19 @@ function StepBody({ step, profile, chairs, chair, services, live, error }: Props
 export function Onboarding(props: Props) {
   // formMethod stays "POST" through the redirect to the next step, when state has already moved to "loading".
   const busy = useNavigation().formMethod === "POST";
+
+  // ?shop=new picks "Add my shop". Replacing the entry keeps Back on the previous step.
+  const [params, setParams] = useSearchParams();
+  const adding = props.step === "shop" && params.get("shop") === "new";
+  const choose = (add: boolean) =>
+    setParams(
+      (p) => {
+        if (add) p.set("shop", "new");
+        else p.delete("shop");
+        return p;
+      },
+      { replace: true, preventScrollReset: true },
+    );
 
   return (
     <div className="overflow-x-clip bg-canvas-soft text-ink">
@@ -57,8 +74,8 @@ export function Onboarding(props: Props) {
             </p>
 
             <div className="mt-10 max-w-md">
-              <OnboardingWizard step={props.step} form={FORMS[props.step]} busy={busy}>
-                <StepBody {...props} />
+              <OnboardingWizard step={props.step} form={adding ? ADD_SHOP_FORM : FORMS[props.step]} busy={busy}>
+                <StepBody {...props} adding={adding} onChoose={choose} />
               </OnboardingWizard>
             </div>
           </Container>

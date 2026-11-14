@@ -692,43 +692,56 @@ create policy appointment_platform_admin on public.appointment
 
 -- ---- creating a shop ----
 -- The only way to create a shop. An insert policy on establishment_owner would
--- let anyone claim any shop, so this writes both rows in one transaction with
--- the caller as owner. Shops start hidden; a taken slug fails on
--- establishment_slug_key.
+-- let anyone claim any shop, so this writes the shop, the caller's owner row,
+-- and the caller's own chair there in one transaction. The shop is live from
+-- the start and the chair is already active; the caller's page still waits on
+-- hours and a service (GOING LIVE). Returns the chair's id. A taken slug fails
+-- on establishment_slug_key.
 create or replace function public.create_establishment(
-  slug     text,
-  name     text,
-  address  text,
-  city     text,
-  state    text,
-  zip      text,
-  timezone text,
-  phone    text default null,
-  email    text default null
+  slug        text,
+  name        text,
+  address     text,
+  city        text,
+  state       text,
+  zip         text,
+  timezone    text,
+  phone       text  default null,
+  email       text  default null,
+  description text  default '',
+  hours       jsonb default null
 )
 returns uuid language plpgsql security definer set search_path = public as $$
 declare
-  new_id uuid;
+  worker   uuid := public.current_worker_id();
+  shop_id  uuid;
+  chair_id uuid;
 begin
   if auth.uid() is null then
     raise exception 'sign in to create a shop' using errcode = '42501';
   end if;
+  if worker is null then
+    raise exception 'set up a worker profile before creating a shop';
+  end if;
 
   insert into public.establishment
-    (slug, name, address, city, state, zip, timezone, phone, email, is_active)
+    (slug, name, address, city, state, zip, timezone, phone, email, description, hours, is_active)
   values
-    (slug, name, address, city, state, zip, timezone, phone, email, false)
-  returning id into new_id;
+    (slug, name, address, city, state, zip, timezone, phone, email, description, hours, true)
+  returning id into shop_id;
 
   insert into public.establishment_owner (user_id, establishment_id, can_manage_billing)
-  values (auth.uid(), new_id, true);
+  values (auth.uid(), shop_id, true);
 
-  return new_id;
+  insert into public.worker_establishment (worker_id, establishment_id, is_active)
+  values (worker, shop_id, true)
+  returning id into chair_id;
+
+  return chair_id;
 end;
 $$;
 
-revoke execute on function public.create_establishment(text, text, text, text, text, text, text, text, text) from public, anon;
-grant  execute on function public.create_establishment(text, text, text, text, text, text, text, text, text) to authenticated;
+revoke execute on function public.create_establishment(text, text, text, text, text, text, text, text, text, text, jsonb) from public, anon;
+grant  execute on function public.create_establishment(text, text, text, text, text, text, text, text, text, text, jsonb) to authenticated;
 
 
 -- ============================================================================
