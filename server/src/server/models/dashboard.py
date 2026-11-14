@@ -5,15 +5,18 @@ own data, read and written as the caller so RLS applies.
 
 from datetime import date
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AwareDatetime, BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 
 from server.models.public_models import Status
 
 # Same shape as the slug checks on worker_profile and establishment.
 SLUG_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
+# Same shape as worker_profile_public_phone_e164_ck.
+E164_PATTERN = r"^\+[1-9][0-9]{1,14}$"
 
 
 class SaveWorkerProfile(BaseModel):
@@ -32,7 +35,7 @@ class SaveWorkerProfile(BaseModel):
     last_name: str
     bio: str = ""
     public_email: str | None = None
-    public_phone: str | None = Field(None, description="E.164", pattern=r"^\+[1-9][0-9]{1,14}$")
+    public_phone: str | None = Field(None, description="E.164", pattern=E164_PATTERN)
 
 
 class MyWorkerProfile(BaseModel):
@@ -58,6 +61,57 @@ class JoinShop(BaseModel):
         max_length=60,
         pattern=SLUG_PATTERN,
     )
+
+
+class ShopDay(BaseModel):
+    """
+    One open day of a shop's posted hours, as HH:MM on the shop's clock. Display
+    only: a worker's own hours at the shop are what limit bookings.
+    """
+
+    open: str = Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+    close: str = Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+
+    @model_validator(mode="after")
+    def _closes_after_it_opens(self) -> Self:
+        # Zero-padded HH:MM sorts as text.
+        if self.close <= self.open:
+            raise ValueError("A shop has to close after it opens")
+        return self
+
+
+class CreateShop(BaseModel):
+    """
+    What the add-shop form posts. create_shop tidies the text and email. The
+    slug, phone, time zone, and hours are checked here because the table rejects
+    a bad slug or time zone, which would surface as a 503. A day left out of
+    hours is closed.
+    """
+
+    slug: str = Field(
+        description="The end of the shop page's address",
+        max_length=60,
+        pattern=SLUG_PATTERN,
+    )
+    name: str
+    address: str
+    city: str
+    state: str
+    zip: str
+    timezone: str = Field(description="IANA, e.g. America/Boise")
+    phone: str | None = Field(None, description="E.164", pattern=E164_PATTERN)
+    email: str | None = None
+    description: str = ""
+    hours: dict[Literal["sun", "mon", "tue", "wed", "thu", "fri", "sat"], ShopDay] = {}
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_zone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Choose a valid time zone") from exc
+        return value
 
 
 class ScheduleDay(BaseModel):

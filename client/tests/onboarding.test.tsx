@@ -5,7 +5,7 @@ import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "~/models/auth";
 import type { MyChair, MyService, MyWorkerProfile, SaveWorkerProfile } from "~/models/dashboard";
-import OnboardingRoute, { action, loader } from "~/routes/onboarding";
+import OnboardingRoute, { action, loader, shouldRevalidate } from "~/routes/onboarding";
 import { commitSession, getSession } from "~/sessions.server";
 import { GoLive } from "~/widgets/Dashboard/goLive";
 import type { StepKey } from "~/widgets/Dashboard/onboarding";
@@ -269,6 +269,26 @@ describe("onboarding loader", () => {
   });
 });
 
+describe("onboarding revalidation", () => {
+  const args = (current: string, next: string, formMethod?: "POST") =>
+    ({
+      currentUrl: new URL(`http://localhost${current}`),
+      nextUrl: new URL(`http://localhost${next}`),
+      formMethod,
+      defaultShouldRevalidate: true,
+    }) as Parameters<typeof shouldRevalidate>[0];
+
+  it("skips the loader when only the shop choice changes", () => {
+    expect(shouldRevalidate(args("/onboarding?step=shop", "/onboarding?step=shop&shop=new"))).toBe(false);
+    expect(shouldRevalidate(args("/onboarding?shop=new", "/onboarding"))).toBe(false);
+  });
+
+  it("reloads on a step change or a submitted form", () => {
+    expect(shouldRevalidate(args("/onboarding?step=shop&shop=new", "/onboarding?step=profile"))).toBe(true);
+    expect(shouldRevalidate(args("/onboarding?step=shop", "/onboarding?step=shop", "POST"))).toBe(true);
+  });
+});
+
 describe("onboarding action", () => {
   beforeEach(() => {
     vi.spyOn(Date, "now").mockReturnValue(NOW * 1000);
@@ -286,6 +306,30 @@ describe("onboarding action", () => {
   };
   /** What the shop form posts. */
   const SHOP_FORM = { intent: "connect-shop", slug: "krusty-fadez" };
+  /** What the add-shop form posts, with Monday and Saturday open and the rest left empty. */
+  const ADD_SHOP_FORM: Record<string, string> = {
+    intent: "add-shop",
+    name: "Main Street Studio",
+    slug: "main-street-studio",
+    address: "12 Main St",
+    city: "Boise",
+    state: "ID",
+    zip: "83702",
+    timezone: "America/Denver",
+    phone: "",
+    email: "",
+    description: "Fades since 1998.",
+    ...Object.fromEntries(
+      ["sun", "mon", "tue", "wed", "thu", "fri", "sat"].flatMap((d) => [
+        [`hours-${d}-open`, ""],
+        [`hours-${d}-close`, ""],
+      ]),
+    ),
+    "hours-mon-open": "09:00",
+    "hours-mon-close": "21:00",
+    "hours-sat-open": "10:00",
+    "hours-sat-close": "16:00",
+  };
   /** What the hours form posts with Monday and Friday on. */
   const HOURS_FORM = {
     intent: "worker-hours",
@@ -332,9 +376,9 @@ describe("onboarding action", () => {
     } as Parameters<typeof action>[0]);
 
   /** The one call the action made, as the API saw it. */
-  function sent(fetchMock: ReturnType<typeof stubApi>) {
+  function sent(fetchMock: ReturnType<typeof stubApi>, method = "PUT") {
     const [url, init] = fetchMock.mock.calls[0];
-    expect(init?.method).toBe("PUT");
+    expect(init?.method).toBe(method);
     expect(init?.headers).toEqual({
       Authorization: "Bearer access-1",
       "Content-Type": "application/json",
@@ -364,6 +408,35 @@ describe("onboarding action", () => {
     const { url, body } = sent(fetchMock);
     expect(url).toBe(`${API_URL}/dashboard/join-request`);
     expect(body).toEqual({ slug: "krusty-fadez" });
+  });
+
+  it("POSTs the new shop as the user, blank fields as null and only the open days, then opens the hours step", async () => {
+    const owned: MyChair = {
+      id: "0000000c-0000-4000-8000-000000000003",
+      shop: { slug: "main-street-studio", name: "Main Street Studio" },
+      is_active: true,
+      schedule_days: [],
+    };
+    const fetchMock = stubApi({ "/dashboard/shops": { status: 201, body: owned } });
+
+    const response = await post(ADD_SHOP_FORM);
+
+    expect((response as Response).headers.get("Location")).toBe("/onboarding?step=schedule");
+    const { url, body } = sent(fetchMock, "POST");
+    expect(url).toBe(`${API_URL}/dashboard/shops`);
+    expect(body).toEqual({
+      slug: "main-street-studio",
+      name: "Main Street Studio",
+      address: "12 Main St",
+      city: "Boise",
+      state: "ID",
+      zip: "83702",
+      timezone: "America/Denver",
+      phone: null,
+      email: null,
+      description: "Fades since 1998.",
+      hours: { mon: { open: "09:00", close: "21:00" }, sat: { open: "10:00", close: "16:00" } },
+    });
   });
 
   it("PUTs the days switched on, in minutes, then opens the services step", async () => {
@@ -415,6 +488,15 @@ describe("onboarding action", () => {
     { form: "shop", status: 422, body: LIST, message: "That's not an existing shop" },
     { form: "shop", status: 409, body: undefined, message: "Set up your profile first" },
     { form: "shop", status: 503, body: undefined, message: "Could not send your request, please try again" },
+    { form: "new shop", status: 409, body: undefined, message: "That link is taken, try another" },
+    {
+      form: "new shop",
+      status: 422,
+      body: { detail: "Fill in the shop's name and address" },
+      message: "Fill in the shop's name and address",
+    },
+    { form: "new shop", status: 422, body: LIST, message: "Check your shop's details, then try again" },
+    { form: "new shop", status: 503, body: undefined, message: "Could not add your shop, please try again" },
     { form: "hours", status: 404, body: undefined, message: "Choose your shop first" },
     { form: "hours", status: 422, body: LIST, message: "Check your hours, then try again" },
     { form: "hours", status: 503, body: undefined, message: "Could not save your hours, please try again" },
@@ -436,6 +518,7 @@ describe("onboarding action", () => {
     const forms = {
       profile: { path: "/dashboard/profile", fields: PROFILE_FORM },
       shop: { path: "/dashboard/join-request", fields: SHOP_FORM },
+      "new shop": { path: "/dashboard/shops", fields: ADD_SHOP_FORM },
       hours: { path: HOURS_URL, fields: HOURS_FORM },
       services: { path: "/dashboard/services", fields: SERVICES_FORM },
     } as const;
@@ -453,6 +536,14 @@ describe("onboarding action", () => {
     await post([["intent", "worker-services"], ...serviceRow("new-1", "", "Kids cut", "free", "soon")]);
 
     expect(sent(fetchMock).body.services[0]).toMatchObject({ price_cents: null, duration_min: null });
+  });
+
+  it("POSTs a day with one time as posted, for the API to refuse", async () => {
+    const fetchMock = stubApi({ "/dashboard/shops": { status: 422, body: LIST } });
+
+    await post({ ...ADD_SHOP_FORM, "hours-tue-open": "12:00" });
+
+    expect(sent(fetchMock, "POST").body.hours.tue).toEqual({ open: "12:00", close: "" });
   });
 
   it("logs the visitor out when the API rejects the token", async () => {
@@ -483,7 +574,7 @@ describe("onboarding page", () => {
   };
 
   /** The real route component with stand-in data and action, so no test here depends on the API. */
-  function renderPage(step: StepKey = "profile", saved: Saved = {}) {
+  function renderPage(step: StepKey = "profile", saved: Saved = {}, entry = "/onboarding") {
     const data = { step, profile: FIRST, chairs: [], chair: null, services: [], live: false, ...saved };
     const posted: FormData[] = [];
     const pageAction = vi.fn(async ({ request }: { request: Request }) => {
@@ -493,7 +584,7 @@ describe("onboarding page", () => {
     const Stub = createRoutesStub([
       { path: "/onboarding", Component: OnboardingRoute, loader: () => data, action: pageAction },
     ]);
-    render(<Stub initialEntries={["/onboarding"]} />);
+    render(<Stub initialEntries={[entry]} />);
     return { user: userEvent.setup(), action: pageAction, posted };
   }
 
@@ -612,6 +703,177 @@ describe("onboarding page", () => {
 
     await waitFor(() => expect(posted).toHaveLength(1));
     expect(Object.fromEntries(posted[0])).toEqual({ intent: "connect-shop", slug: "krusty-fadez" });
+  });
+
+  it("offers joining a shop or adding one, with joining picked", async () => {
+    renderPage("shop", { profile: PROFILE });
+
+    expect(await screen.findByRole("radio", { name: "Join a shop" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Add my shop" })).not.toBeChecked();
+    expect(field("Shop link")).toHaveValue("");
+    expect(next()).toBeEnabled();
+  });
+
+  it("swaps in the new shop form when Add my shop is picked, with Next on", async () => {
+    const { user } = renderPage("shop", { profile: PROFILE });
+    await user.click(await screen.findByRole("radio", { name: "Add my shop" }));
+
+    expect(await screen.findByLabelText("Shop name")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Add my shop" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Timezone" })).toHaveValue("");
+    expect(field("Sunday opens")).toBeInTheDocument();
+    expect(field("Saturday closes")).toBeInTheDocument();
+    expect(screen.queryByText(/send the owner a request/)).not.toBeInTheDocument();
+    expect(next()).toBeEnabled();
+  });
+
+  it("opens on the new shop form from ?shop=new", async () => {
+    renderPage("shop", { profile: PROFILE }, "/onboarding?shop=new");
+
+    expect(await screen.findByRole("radio", { name: "Add my shop" })).toBeChecked();
+    expect(field("Shop name")).toBeInTheDocument();
+    expect(next()).toBeEnabled();
+  });
+
+  it("goes back to the waiting request's link when Join is picked again", async () => {
+    const { user } = renderPage("shop", { profile: PROFILE, chairs: [WAITING] }, "/onboarding?shop=new");
+    await user.click(await screen.findByRole("radio", { name: "Join a shop" }));
+
+    expect(await screen.findByLabelText("Shop link")).toHaveValue("krusty-fadez");
+    expect(screen.queryByLabelText("Shop name")).not.toBeInTheDocument();
+    expect(next()).toBeEnabled();
+  });
+
+  /** The new shop form, opened from ?shop=new. */
+  const addShop = () => renderPage("shop", { profile: PROFILE }, "/onboarding?shop=new");
+
+  /** Fills in every required field of the new shop form. */
+  async function fillShop() {
+    const values = {
+      "Shop name": "Main Street Studio",
+      "Shop link": "main-street-studio",
+      "Street address": "12 Main St",
+      City: "Boise",
+      State: "ID",
+      "ZIP code": "83702",
+      Timezone: "America/Denver",
+    };
+    await screen.findByLabelText("Shop name");
+    for (const [label, value] of Object.entries(values)) {
+      fireEvent.change(field(label), { target: { value } });
+    }
+  }
+
+  it("flags the new shop's empty required fields on Next and posts nothing", async () => {
+    const { user, action: pageAction } = addShop();
+    await user.click(await screen.findByRole("button", { name: "Next" }));
+
+    const errors = {
+      "Shop name": "Enter the shop's name",
+      "Shop link": "Enter a link for the shop's page",
+      "Street address": "Enter the street address",
+      City: "Enter the city",
+      State: "Enter the state",
+      "ZIP code": "Enter the ZIP code",
+      Timezone: "Choose the shop's timezone",
+    };
+    for (const [label, message] of Object.entries(errors)) {
+      expect(field(label)).toHaveAttribute("aria-invalid", "true");
+      expect(field(label)).toHaveAccessibleDescription(message);
+    }
+    expect(field("Shop phone (optional)")).not.toHaveAttribute("aria-invalid");
+    expect(field("Monday opens")).not.toHaveAttribute("aria-invalid");
+    expect(field("Shop name")).toHaveFocus();
+    expect(pageAction).not.toHaveBeenCalled();
+  });
+
+  it("tidies the new shop's link and phone when they are left", async () => {
+    const { user } = addShop();
+    await user.type(await screen.findByLabelText("Shop link"), "Main Street Studio");
+    await user.type(field("Shop phone (optional)"), "(208) 555-0100");
+    await user.tab();
+
+    expect(field("Shop link")).toHaveValue("main-street-studio");
+    expect(field("Shop phone (optional)")).toHaveValue("+12085550100");
+  });
+
+  it.each([
+    {
+      problem: "a malformed email",
+      values: { "Shop email (optional)": "hi@" },
+      field: "Shop email (optional)",
+      message: "Enter an email address",
+    },
+    {
+      problem: "a phone without an area code",
+      values: { "Shop phone (optional)": "555-0100" },
+      field: "Shop phone (optional)",
+      message: "Enter a phone number with area code",
+    },
+    {
+      problem: "a day with only an opening time",
+      values: { "Monday opens": "09:00" },
+      field: "Monday closes",
+      message: "Enter both times",
+    },
+    {
+      problem: "a day with only a closing time",
+      values: { "Monday closes": "17:00" },
+      field: "Monday opens",
+      message: "Enter both times",
+    },
+    {
+      problem: "a close before the open",
+      values: { "Monday opens": "17:00", "Monday closes": "09:00" },
+      field: "Monday closes",
+      message: "Close after it opens",
+    },
+    {
+      problem: "a close at midnight",
+      values: { "Monday opens": "17:00", "Monday closes": "00:00" },
+      field: "Monday closes",
+      message: "Close after it opens",
+    },
+  ])("flags $problem on the new shop form and posts nothing", async ({ values, field: label, message }) => {
+    const { user, action: pageAction } = addShop();
+    await fillShop();
+    for (const [name, value] of Object.entries(values)) {
+      fireEvent.change(field(name), { target: { value } });
+    }
+    await user.click(next());
+
+    expect(field(label)).toHaveAttribute("aria-invalid", "true");
+    expect(field(label)).toHaveAccessibleDescription(message);
+    expect(field(label)).toHaveFocus();
+    expect(pageAction).not.toHaveBeenCalled();
+  });
+
+  it("posts every new shop field, named by its intent, when Next is pressed", async () => {
+    const { user, posted } = addShop();
+    await fillShop();
+    fireEvent.change(field("Monday opens"), { target: { value: "09:00" } });
+    fireEvent.change(field("Monday closes"), { target: { value: "21:00" } });
+    await user.click(next());
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    const form = Object.fromEntries(posted[0]);
+    expect(form).toMatchObject({
+      intent: "add-shop",
+      name: "Main Street Studio",
+      slug: "main-street-studio",
+      address: "12 Main St",
+      city: "Boise",
+      state: "ID",
+      zip: "83702",
+      timezone: "America/Denver",
+      phone: "",
+      email: "",
+      description: "",
+      "hours-mon-open": "09:00",
+      "hours-mon-close": "21:00",
+      "hours-sun-open": "",
+    });
+    expect(Object.keys(form).filter((k) => k.startsWith("hours-"))).toHaveLength(14);
   });
 
   it("shows a day's hours, 9 to 5 to start, once it's switched on", async () => {

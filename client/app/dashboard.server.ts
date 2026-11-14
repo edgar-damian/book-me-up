@@ -1,6 +1,7 @@
 import { toLogin } from "~/auth.server";
 import type {
   AnswerRequest,
+  CreateShop,
   JoinShop,
   MyChair,
   MyService,
@@ -62,8 +63,19 @@ async function apiPut(request: Request, token: string, path: string, body: unkno
   return res;
 }
 
+/** POSTs a JSON body as the signed-in user. Throws a redirect to /login when the token is refused. */
+async function apiPost(request: Request, token: string, path: string, body: unknown) {
+  const res = await fetch(`${process.env.API_URL}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) throw await toLogin(request);
+  return res;
+}
+
 /**
- * The message for a refused PUT: the one listed for its status, else the API's
+ * The message for a refused PUT or POST: the one listed for its status, else the API's
  * own sentence on a 422, else `invalid` for FastAPI's list of field errors,
  * else the fallback.
  */
@@ -127,6 +139,48 @@ export async function requestShop(request: Request, token: string, fd: FormData)
       res,
       { 404: missing, 409: "Set up your profile first", 422: missing },
       "Could not send your request, please try again",
+    ),
+  };
+}
+
+/**
+ * Sends the add-shop form to POST /dashboard/shops, blank optional fields as
+ * null and only the days with a time filled in. Returns null once the shop is
+ * made, or the message to show with the API's status. Throws a redirect to
+ * /login when the token is refused.
+ */
+export async function createShop(request: Request, token: string, fd: FormData) {
+  const text = (name: string) => String(fd.get(name) ?? "");
+  const hours: CreateShop["hours"] = {};
+  for (const day of ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const) {
+    const open = text(`hours-${day}-open`);
+    const close = text(`hours-${day}-close`);
+    // A day with one time goes as posted, which the API refuses.
+    if (open || close) hours[day] = { open, close };
+  }
+  const body: CreateShop = {
+    slug: text("slug"),
+    name: text("name"),
+    address: text("address"),
+    city: text("city"),
+    state: text("state"),
+    zip: text("zip"),
+    timezone: text("timezone"),
+    phone: text("phone").trim() || null,
+    email: text("email").trim() || null,
+    description: text("description"),
+    hours,
+  };
+
+  const res = await apiPost(request, token, "/dashboard/shops", body);
+  if (res.ok) return null;
+  return {
+    status: res.status,
+    error: await refusal(
+      res,
+      { 409: "That link is taken, try another" },
+      "Could not add your shop, please try again",
+      "Check your shop's details, then try again",
     ),
   };
 }

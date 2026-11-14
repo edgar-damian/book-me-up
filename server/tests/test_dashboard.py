@@ -238,6 +238,19 @@ def test_malformed_slug_or_phone_is_422_and_never_queries(client, db, change):
         ("GET", "/dashboard/chairs", None),
         ("PUT", "/dashboard/join-request", {"slug": "krusty-fadez"}),
         (
+            "POST",
+            "/dashboard/shops",
+            {
+                "slug": "main-street-studio",
+                "name": "Main Street Studio",
+                "address": "12 Main St",
+                "city": "Boise",
+                "state": "ID",
+                "zip": "83702",
+                "timezone": "America/Boise",
+            },
+        ),
+        (
             "PUT",
             "/dashboard/chairs/0000000c-0000-4000-8000-000000000001/schedule",
             {"days": [{"day_of_week": 1, "start_minute": 540, "end_minute": 1020}]},
@@ -507,6 +520,241 @@ def test_join_failures(client, db, join, lookup, insert, code):
     join.insert.return_value.execute.configure_mock(**insert)
 
     assert client.put(JOIN_URL, json={"slug": "krusty-fadez"}).status_code == code
+
+
+SHOPS_URL = "/dashboard/shops"
+NEW_SHOP = {
+    "slug": "main-street-studio",
+    "name": "Main Street Studio",
+    "address": "12 Main St",
+    "city": "Boise",
+    "state": "ID",
+    "zip": "83702",
+    "timezone": "America/Boise",
+    "phone": "+12085550100",
+    "email": "hi@mainstreet.test",
+    "description": "Fades since 1998.",
+    "hours": {"mon": {"open": "09:00", "close": "21:00"}},
+}
+SHOP_SLUG_TAKEN = APIError(
+    {
+        "code": "23505",
+        "message": 'duplicate key value violates unique constraint "establishment_slug_key"',
+    }
+)
+
+
+@pytest.fixture
+def new_shop(db):
+    """The create_establishment call, the owner lookup, and the withdraw a new shop runs."""
+    rpc = db.factory.return_value.rpc
+    rpc.return_value.execute.return_value = SimpleNamespace(data=NEW_CHAIR)
+    owners = db.tables["establishment_owner"]
+    chairs = db.tables["worker_establishment"]
+    return SimpleNamespace(
+        rpc=rpc,
+        owners=owners,
+        owner=owners.select.return_value.eq.return_value.eq.return_value.limit.return_value,
+        delete=chairs.delete,
+        withdraw=chairs.delete.return_value.eq.return_value.eq.return_value.is_.return_value,
+    )
+
+
+def test_new_shop_makes_the_caller_its_owner_with_a_joined_chair(client, db, new_shop):
+    db.read.execute.return_value = rows(mine())
+
+    response = client.post(SHOPS_URL, json=NEW_SHOP)
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "id": NEW_CHAIR,
+        "shop": {"slug": "main-street-studio", "name": "Main Street Studio"},
+        "is_active": True,
+        "schedule_days": [],
+    }
+    new_shop.rpc.assert_called_once_with("create_establishment", NEW_SHOP)
+
+
+def test_new_shop_runs_as_the_caller_on_the_public_key(client, db, new_shop):
+    db.read.execute.return_value = rows(mine())
+
+    client.post(SHOPS_URL, json=NEW_SHOP)
+
+    assert db.factory.call_args.args[1] == "test-publishable"
+    options = db.factory.call_args.kwargs["options"]
+    assert options.headers["Authorization"] == "Bearer access-1"
+
+
+def test_new_shop_tidies_the_text_before_creating(client, db, new_shop):
+    db.read.execute.return_value = rows(mine())
+    posted = {k: v for k, v in NEW_SHOP.items() if k not in ("phone", "hours")} | {
+        "name": "  Main   Street\tStudio ",
+        "city": "Boise\u202e",
+        "email": " HI@MainStreet.test ",
+        "description": "Fades since 1998.\n\nWalk-ins welcome.",
+    }
+
+    response = client.post(SHOPS_URL, json=posted)
+
+    assert response.json()["shop"]["name"] == "Main Street Studio"
+    params = new_shop.rpc.call_args.args[1]
+    assert params["name"] == "Main Street Studio"
+    assert params["city"] == "Boise"
+    assert params["email"] == "hi@mainstreet.test"
+    assert params["description"] == "Fades since 1998. Walk-ins welcome."
+    assert params["phone"] is None
+    assert params["hours"] is None
+
+
+def test_new_shop_caps_the_text(client, db, new_shop):
+    db.read.execute.return_value = rows(mine())
+
+    client.post(SHOPS_URL, json=NEW_SHOP | {"name": "n" * 150, "description": "d" * 1500})
+
+    params = new_shop.rpc.call_args.args[1]
+    assert params["name"] == "n" * 100
+    assert params["description"] == "d" * 1000
+
+
+def test_new_shop_withdraws_the_callers_waiting_requests(client, db, new_shop):
+    db.read.execute.return_value = rows(mine(chair(REGULAR)))
+
+    client.post(SHOPS_URL, json=NEW_SHOP)
+
+    new_shop.delete.assert_called_once_with(returning=ReturnMethod.minimal)
+    by_worker = new_shop.delete.return_value.eq
+    waiting = by_worker.return_value.eq
+    not_ended = waiting.return_value.is_
+    assert by_worker.call_args == call("worker_id", WORKER_ID)
+    assert waiting.call_args == call("is_active", False)
+    assert not_ended.call_args == call("ended_at", None)
+    new_shop.withdraw.neq.assert_not_called()
+    new_shop.withdraw.execute.assert_called_once()
+
+
+def test_posting_the_same_shop_again_returns_its_chair(client, db, new_shop):
+    db.read.execute.return_value = rows(mine(chair(KRUSTY, is_active=True, days=[MONDAY])))
+    new_shop.rpc.return_value.execute.side_effect = SHOP_SLUG_TAKEN
+    new_shop.owner.execute.return_value = rows({"id": "0000000a-0000-4000-8000-000000000001"})
+
+    response = client.post(SHOPS_URL, json=NEW_SHOP | {"slug": "krusty-fadez"})
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "id": CHAIR_IDS[KRUSTY["id"]],
+        "shop": {"slug": "krusty-fadez", "name": "Krusty Fadez"},
+        "is_active": True,
+        "schedule_days": [MONDAY],
+    }
+    by_user = new_shop.owners.select.return_value.eq
+    assert by_user.call_args == call("user_id", CALLER.user_id)
+    assert by_user.return_value.eq.call_args == call("establishment_id", KRUSTY["id"])
+    new_shop.withdraw.execute.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("held", "owned"),
+    [
+        (mine(), rows({"id": "0000000a-0000-4000-8000-000000000001"})),
+        (mine(chair(KRUSTY, is_active=True)), rows()),
+        (mine(chair(KRUSTY, ended_at="2025-06-01T00:00:00+00:00")), rows({"id": "x"})),
+    ],
+    ids=["no-chair-there", "not-the-owner", "ended-chair"],
+)
+def test_a_slug_another_shop_uses_is_409_and_withdraws_nothing(client, db, new_shop, held, owned):
+    db.read.execute.return_value = rows(held)
+    new_shop.rpc.return_value.execute.side_effect = SHOP_SLUG_TAKEN
+    new_shop.owner.execute.return_value = owned
+
+    response = client.post(SHOPS_URL, json=NEW_SHOP | {"slug": "krusty-fadez"})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "That link is taken, try another"}
+    new_shop.delete.assert_not_called()
+
+
+def test_new_shop_without_a_profile_is_409_and_never_creates(client, db, new_shop):
+    db.read.execute.return_value = rows()
+
+    response = client.post(SHOPS_URL, json=NEW_SHOP)
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Set up your profile first"}
+    new_shop.rpc.assert_not_called()
+    new_shop.delete.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("change", "detail"),
+    [
+        ({"name": " \u200b "}, "Fill in the shop's name and address"),
+        ({"address": "\u202e"}, "Fill in the shop's name and address"),
+        ({"zip": "   "}, "Fill in the shop's name and address"),
+        ({"email": "not-an-email"}, "Enter a valid email address"),
+    ],
+    ids=["blank-name", "invisible-address", "blank-zip", "bad-email"],
+)
+def test_blank_shop_text_is_422_and_never_queries(client, db, change, detail):
+    response = client.post(SHOPS_URL, json=NEW_SHOP | change)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": detail}
+    db.factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "posted",
+    [
+        NEW_SHOP | {"slug": "Main Street"},
+        NEW_SHOP | {"slug": "m" * 61},
+        NEW_SHOP | {"phone": "(208) 555-0100"},
+        NEW_SHOP | {"timezone": "America/Boisee"},
+        NEW_SHOP | {"timezone": ""},
+        NEW_SHOP | {"hours": {"mon": {"open": "21:00", "close": "09:00"}}},
+        NEW_SHOP | {"hours": {"mon": {"open": "09:00", "close": "09:00"}}},
+        NEW_SHOP | {"hours": {"mon": {"open": "9:00", "close": "21:00"}}},
+        NEW_SHOP | {"hours": {"mon": {"open": "09:00", "close": "24:00"}}},
+        NEW_SHOP | {"hours": {"mon": {"open": "09:00"}}},
+        NEW_SHOP | {"hours": {"funday": {"open": "09:00", "close": "21:00"}}},
+        {k: v for k, v in NEW_SHOP.items() if k != "name"},
+    ],
+    ids=[
+        "slug-spaces",
+        "slug-long",
+        "phone-not-e164",
+        "timezone-typo",
+        "timezone-empty",
+        "closes-before-it-opens",
+        "closes-as-it-opens",
+        "time-not-padded",
+        "time-past-midnight",
+        "no-close",
+        "unknown-day",
+        "no-name",
+    ],
+)
+def test_malformed_shop_is_422_and_never_queries(client, db, posted):
+    assert client.post(SHOPS_URL, json=posted).status_code == 422
+    db.factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("rpc", "withdraw", "code"),
+    [
+        ({"side_effect": APIError({"code": "PGRST303", "message": "JWT expired"})}, {}, 401),
+        ({"side_effect": APIError({"code": "42501", "message": "permission denied"})}, {}, 503),
+        ({"side_effect": SLUG_TAKEN}, {}, 503),
+        ({"return_value": SimpleNamespace(data=[])}, {}, 503),
+        ({}, {"side_effect": APIError({"code": "42501", "message": "row-level security"})}, 503),
+    ],
+    ids=["token-rejected", "create-refused", "other-slug-key", "no-chair-id", "withdraw-refused"],
+)
+def test_new_shop_failures(client, db, new_shop, rpc, withdraw, code):
+    db.read.execute.return_value = rows(mine())
+    new_shop.rpc.return_value.execute.configure_mock(**rpc)
+    new_shop.withdraw.execute.configure_mock(**withdraw)
+
+    assert client.post(SHOPS_URL, json=NEW_SHOP).status_code == code
 
 
 def schedule_url(chair_id=CHAIR_IDS[KRUSTY["id"]]):

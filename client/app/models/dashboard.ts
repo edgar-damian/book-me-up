@@ -33,6 +33,31 @@ export type JoinShop = {
   slug: string;
 };
 
+/** One open day of a shop's posted hours, as HH:MM on the shop's clock. */
+export type ShopDay = {
+  open: string;
+  close: string;
+};
+
+/**
+ * What the add-shop form sends to POST /dashboard/shops. The optional fields
+ * are null when left blank, and a day left out of hours is closed. The response
+ * is the worker's chair at the new shop, as a MyChair.
+ */
+export type CreateShop = {
+  slug: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  timezone: string;
+  phone: string | null;
+  email: string | null;
+  description: string;
+  hours: Partial<Record<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat", ShopDay>>;
+};
+
 /**
  * One open day of a chair's week, in minutes after the shop's local midnight.
  * day_of_week runs 0 = Sunday to 6 = Saturday.
