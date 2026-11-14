@@ -134,6 +134,7 @@ describe("server rendering", () => {
             chairs={[chair]}
             chair={chair}
             week={null}
+            requests={[]}
             editing={{ edit: "schedule", chairs: [chair], chair }}
             error={null}
             conflicts={null}
@@ -173,7 +174,15 @@ describe("server rendering", () => {
       {
         path: "/dashboard",
         Component: () => (
-          <Dashboard chairs={[chair]} chair={chair} week={week} editing={null} error={null} conflicts={null} />
+          <Dashboard
+            chairs={[chair]}
+            chair={chair}
+            week={week}
+            requests={[]}
+            editing={null}
+            error={null}
+            conflicts={null}
+          />
         ),
       },
     ]);
@@ -213,6 +222,7 @@ describe("server rendering", () => {
             chairs={[chair]}
             chair={chair}
             week={null}
+            requests={[]}
             editing={{ edit: "time-off", chair, timeOff }}
             error={null}
             conflicts={null}
@@ -235,6 +245,7 @@ describe("server rendering", () => {
             chairs={[chair]}
             chair={chair}
             week={null}
+            requests={[]}
             editing={{ edit: "time-off", chair, timeOff }}
             error={null}
             conflicts={timeOff.conflicts}

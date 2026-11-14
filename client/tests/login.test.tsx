@@ -35,7 +35,7 @@ function renderLogin() {
     {
       path: "/dashboard",
       Component: DashboardRoute,
-      loader: () => ({ editing: null, chairs: [], chair: null, week: null }),
+      loader: () => ({ editing: null, chairs: [], chair: null, week: null, requests: [] }),
     },
   ]);
   render(<Stub initialEntries={["/login"]} />);

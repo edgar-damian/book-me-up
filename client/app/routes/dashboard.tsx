@@ -2,7 +2,7 @@ import { data, redirect } from "react-router";
 import type { Route } from "./+types/dashboard";
 import { Dashboard } from "../pages/Dashboard";
 import type { Me } from "~/models/auth";
-import type { MyChair, MyTimeOff, MyWeek } from "~/models/dashboard";
+import type { JoinRequest, MyChair, MyTimeOff, MyWeek } from "~/models/dashboard";
 import { authorize, toLogin } from "~/auth.server";
 import {
   answerRequest,
@@ -75,10 +75,15 @@ export async function loader({ request }: Route.LoaderArgs) {
   const chairs = setup ? (setup.chairs ?? []) : ((await apiGet<MyChair[]>(request, token, "/dashboard/chairs")) ?? []);
   const shops = chairs.filter((c) => c.is_active);
   const chair = shops.find((c) => c.id === params.get("chair")) ?? shops.at(0) ?? null;
-  const week = chair
-    ? await apiGet<MyWeek>(request, token, `/dashboard/chairs/${encodeURIComponent(chair.id)}/appointments`)
-    : null;
-  return data({ editing, chairs, chair, week }, headers ? { headers } : undefined);
+  // The requests to join the shops the worker owns put a count on the inbox.
+  // A worker who owns no shop always gets none.
+  const [week, requests] = await Promise.all([
+    chair
+      ? apiGet<MyWeek>(request, token, `/dashboard/chairs/${encodeURIComponent(chair.id)}/appointments`)
+      : null,
+    apiGet<JoinRequest[]>(request, token, "/dashboard/join-requests"),
+  ]);
+  return data({ editing, chairs, chair, week, requests: requests ?? [] }, headers ? { headers } : undefined);
 }
 
 /** What saves each form the edit dialog holds, named by its intent. */
@@ -140,6 +145,7 @@ export default function DashboardRoute({ loaderData, actionData }: Route.Compone
       chairs={loaderData.chairs}
       chair={loaderData.chair}
       week={loaderData.week}
+      requests={loaderData.requests}
       editing={loaderData.editing}
       error={actionData?.error ?? null}
       conflicts={actionData?.conflicts ?? null}

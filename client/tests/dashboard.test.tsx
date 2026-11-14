@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "~/models/auth";
 import type {
   AppointmentStatus,
+  JoinRequest,
   MyAppointment,
   MyChair,
   MyDay,
@@ -156,6 +157,27 @@ const TIME_OFF: MyTimeOff = {
   stretches: [AWAY],
   conflicts: [ETHAN_AWAY],
 };
+/** A worker asking to join Regular Cutz, which the signed-in worker owns. */
+const SQUIDWARD: JoinRequest = {
+  id: "0000000c-0000-4000-8000-000000000004",
+  requested_at: "2026-10-29T18:00:00Z",
+  shop: { slug: "regular-cutz", name: "Regular Cutz" },
+  worker: {
+    first_name: "Squidward",
+    last_name: "Tentacles",
+    bio: "Clarinet player, reluctant barber.",
+    public_email: "squidward@example.com",
+    public_phone: null,
+  },
+};
+/** `n` requests to join, each under its own chair id. */
+const asking = (n: number): JoinRequest[] =>
+  Array.from({ length: n }, (_, i) => ({
+    ...SQUIDWARD,
+    id: `0000000c-0000-4000-8000-${String(100 + i).padStart(12, "0")}`,
+  }));
+/** The inbox of a worker nobody is asking to join. */
+const NO_REQUESTS = { "/dashboard/join-requests": { status: 200, body: [] } };
 
 beforeEach(() => {
   vi.stubEnv("SESSION_SECRET", "test-secret");
@@ -213,6 +235,7 @@ describe("dashboard loader", () => {
     const fetchMock = stubApi({
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [] },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600));
@@ -228,12 +251,19 @@ describe("dashboard loader", () => {
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [WAITING, JOINED] },
       [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600));
 
-    expect(result.data).toEqual({ editing: null, chairs: [WAITING, JOINED], chair: JOINED, week: WEEK });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.data).toEqual({
+      editing: null,
+      chairs: [WAITING, JOINED],
+      chair: JOINED,
+      week: WEEK,
+      requests: [],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     for (const [, init] of fetchMock.mock.calls) {
       expect(init?.headers).toEqual({ Authorization: "Bearer access-1" });
     }
@@ -244,6 +274,7 @@ describe("dashboard loader", () => {
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [JOINED, FADE_LAB] },
       [`/dashboard/chairs/${FADE_LAB.id}/appointments`]: { status: 200, body: WEEK },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600), `?chair=${FADE_LAB.id}`);
@@ -256,6 +287,7 @@ describe("dashboard loader", () => {
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [WAITING, JOINED] },
       [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600), `?chair=${WAITING.id}`);
@@ -268,6 +300,35 @@ describe("dashboard loader", () => {
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [JOINED] },
       [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 401 },
+      ...NO_REQUESTS,
+    });
+
+    const response = await thrown(load(await cookie(3600)));
+
+    expect(response.headers.get("Location")).toBe("/login");
+  });
+
+  it("hands the inbox the requests to join the worker's shops, as the worker", async () => {
+    const fetchMock = stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [JOINED] },
+      [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+      "/dashboard/join-requests": { status: 200, body: [SQUIDWARD] },
+    });
+
+    const result = await load(await cookie(3600));
+
+    expect(result.data.requests).toEqual([SQUIDWARD]);
+    const [, init] = fetchMock.mock.calls.find(([url]) => url === `${API_URL}/dashboard/join-requests`)!;
+    expect(init?.headers).toEqual({ Authorization: "Bearer access-1" });
+  });
+
+  it("logs the visitor out when the API rejects the token for the inbox", async () => {
+    stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [JOINED] },
+      [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+      "/dashboard/join-requests": { status: 401 },
     });
 
     const response = await thrown(load(await cookie(3600)));
@@ -280,6 +341,7 @@ describe("dashboard loader", () => {
       "/auth/refresh": { status: 200, body: RENEWED },
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [] },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(30));
@@ -386,6 +448,7 @@ describe("dashboard loader", () => {
           },
         ],
       },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600));
@@ -403,6 +466,7 @@ describe("dashboard loader", () => {
     ...Object.fromEntries(
       chairs.map((c) => [`/dashboard/chairs/${c.id}/appointments`, { status: 200, body: WEEK }]),
     ),
+    ...NO_REQUESTS,
   });
 
   it("opens the hours at the shop the worker has joined, over a request still waiting", async () => {
@@ -755,6 +819,7 @@ describe("dashboard page", () => {
       week = WEEK,
       timeOff = TIME_OFF,
       services = [SKIN_FADE],
+      requests = [],
       conflicts,
       refusal,
       hang = false,
@@ -763,6 +828,7 @@ describe("dashboard page", () => {
       week?: MyWeek;
       timeOff?: MyTimeOff;
       services?: MyService[];
+      requests?: JoinRequest[];
       conflicts?: TimeOffConflict[];
       refusal?: string;
       hang?: boolean;
@@ -797,7 +863,13 @@ describe("dashboard page", () => {
           const shops = chairs.filter((c) => c.is_active);
           const named = new URL(request.url).searchParams.get("chair");
           const chair = shops.find((c) => c.id === named) ?? shops.at(0) ?? null;
-          return { editing: editingAt(request.url, chairs, timeOff, services), chairs, chair, week: chair && current };
+          return {
+            editing: editingAt(request.url, chairs, timeOff, services),
+            chairs,
+            chair,
+            week: chair && current,
+            requests,
+          };
         },
         action: pageAction,
       },
@@ -827,6 +899,23 @@ describe("dashboard page", () => {
       "Thursday November 5",
     ]);
     expectHeadingOutline();
+  });
+
+  it("shows an empty inbox while nobody is asking to join", async () => {
+    renderPage();
+
+    const inbox = await screen.findByRole("button", { name: "Inbox" });
+    expect(inbox).toHaveTextContent(/^$/);
+  });
+
+  it.each([
+    { n: 1, name: "Inbox, 1 request", badge: "1" },
+    { n: 3, name: "Inbox, 3 requests", badge: "3" },
+    { n: 12, name: "Inbox, 12 requests", badge: "9+" },
+  ])("counts $n waiting on the inbox", async ({ n, name, badge }) => {
+    renderPage("/dashboard", { requests: asking(n) });
+
+    expect(await screen.findByRole("button", { name })).toHaveTextContent(badge);
   });
 
   it("shows each booking's time, length, client, service, price, and status on the shop's clock", async () => {
