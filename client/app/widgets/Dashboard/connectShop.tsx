@@ -37,8 +37,9 @@ export function ConnectShopForm({
     input.focus();
   }
 
-  // A request still waiting is the one the worker came back to change.
-  const current = chairs.find((c) => !c.is_active) ?? chairs[0];
+  // A request still waiting is the one the worker came back to change. A declined
+  // one is never offered again here.
+  const current = chairs.find((c) => !c.is_active && !c.declined_at) ?? chairs.find((c) => !c.declined_at);
 
   return (
     <Form id={SHOP_FORM} method="post" noValidate onSubmit={submit} className="grid gap-4 text-body-sm">
@@ -59,10 +60,12 @@ export function ConnectShopForm({
                 className={`${CHIP} ${
                   c.is_active
                     ? "bg-status-accepted-tint text-status-accepted"
-                    : "bg-status-pending-tint text-status-pending"
+                    : c.declined_at
+                      ? "bg-status-rejected-tint text-status-rejected"
+                      : "bg-status-pending-tint text-status-pending"
                 }`}
               >
-                {c.is_active ? "Joined" : "Waiting"}
+                {c.is_active ? "Joined" : c.declined_at ? "Not accepted" : "Waiting"}
               </span>
             </li>
           ))}

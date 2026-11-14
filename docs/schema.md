@@ -86,6 +86,7 @@ WorkerEstablishment [icon: link, color: yellow] {
   updatedAt DateTime
   startedAt DateTime
   endedAt DateTime?
+  declinedAt DateTime?  // the owner declined the request; asking again clears it
   // unique (workerId, establishmentId) where isActive
 }
 

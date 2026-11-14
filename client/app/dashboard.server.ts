@@ -46,9 +46,15 @@ export async function loadSetup(request: Request, token: string) {
   // Hours belong to one chair: the request still waiting, else the first chair held.
   const chair = chairs?.find((c) => !c.is_active) ?? chairs?.[0] ?? null;
 
+  // A declined request opens the last step, which says so and offers what to do next.
   const reached = live
     ? 4
-    : !profile ? 0 : !chair ? 1 : !chair.schedule_days.length ? 2 : !services?.length ? 3 : 4;
+    : !profile ? 0
+    : !chair ? 1
+    : chair.declined_at ? 4
+    : !chair.schedule_days.length ? 2
+    : !services?.length ? 3
+    : 4;
   return { profile, chairs, chair, services, live, reached };
 }
 

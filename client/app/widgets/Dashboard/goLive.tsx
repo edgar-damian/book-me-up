@@ -30,7 +30,7 @@ export function GoLive({
   live: boolean;
   /** Every shop the worker works at, or has asked to join. */
   chairs: MyChair[];
-  /** The request the worker is waiting on, else their first chair. */
+  /** The request the worker is waiting on or was declined, else their first chair. */
   chair: MyChair | null;
   services: MyService[];
   /** The end of the worker's page address. */
@@ -45,6 +45,22 @@ export function GoLive({
     () => window.location.origin,
     () => "",
   );
+
+  if (!live && chair?.declined_at) {
+    return (
+      <div className="grid gap-4 text-body-sm">
+        <span className={`${CHIP} bg-status-rejected-tint text-status-rejected`}>Not accepted</span>
+        <p className="text-body-md text-ink">{chair.shop.name} has not accepted you.</p>
+        <p className="text-ink-secondary">You can create your own shop or send a request to another one.</p>
+        <Link to="?step=shop&shop=new" className={PRIMARY}>
+          Add my shop
+        </Link>
+        <Link to="?step=shop" className={SECONDARY}>
+          Ask another shop
+        </Link>
+      </div>
+    );
+  }
 
   if (!live) {
     return (

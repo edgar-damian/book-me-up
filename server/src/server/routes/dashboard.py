@@ -245,8 +245,8 @@ def write_join_answer(
 ):
     """
     Accepts or declines a request to join one of the caller's shops. Accepting gives
-    the worker the chair, and declining removes the request. Accepting again changes
-    nothing.
+    the worker the chair, and declining marks the request declined, which the worker
+    sees. Repeating an answer changes nothing.
     """
     try:
         answered = answer_join_request(caller, chair_id, body.status)
