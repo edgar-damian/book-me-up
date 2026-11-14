@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "~/models/auth";
 import type {
   AppointmentStatus,
+  JoinRequest,
   MyAppointment,
   MyChair,
   MyDay,
@@ -156,6 +157,27 @@ const TIME_OFF: MyTimeOff = {
   stretches: [AWAY],
   conflicts: [ETHAN_AWAY],
 };
+/** A worker asking to join Regular Cutz, which the signed-in worker owns. */
+const SQUIDWARD: JoinRequest = {
+  id: "0000000c-0000-4000-8000-000000000004",
+  requested_at: "2026-10-29T18:00:00Z",
+  shop: { slug: "regular-cutz", name: "Regular Cutz" },
+  worker: {
+    first_name: "Squidward",
+    last_name: "Tentacles",
+    bio: "Clarinet player, reluctant barber.",
+    public_email: "squidward@example.com",
+    public_phone: null,
+  },
+};
+/** `n` requests to join, each under its own chair id. */
+const asking = (n: number): JoinRequest[] =>
+  Array.from({ length: n }, (_, i) => ({
+    ...SQUIDWARD,
+    id: `0000000c-0000-4000-8000-${String(100 + i).padStart(12, "0")}`,
+  }));
+/** The inbox of a worker nobody is asking to join. */
+const NO_REQUESTS = { "/dashboard/join-requests": { status: 200, body: [] } };
 
 beforeEach(() => {
   vi.stubEnv("SESSION_SECRET", "test-secret");
@@ -213,6 +235,7 @@ describe("dashboard loader", () => {
     const fetchMock = stubApi({
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [] },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600));
@@ -228,12 +251,20 @@ describe("dashboard loader", () => {
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [WAITING, JOINED] },
       [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600));
 
-    expect(result.data).toEqual({ editing: null, chairs: [WAITING, JOINED], chair: JOINED, week: WEEK });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.data).toEqual({
+      editing: null,
+      inbox: false,
+      chairs: [WAITING, JOINED],
+      chair: JOINED,
+      week: WEEK,
+      requests: [],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     for (const [, init] of fetchMock.mock.calls) {
       expect(init?.headers).toEqual({ Authorization: "Bearer access-1" });
     }
@@ -244,6 +275,7 @@ describe("dashboard loader", () => {
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [JOINED, FADE_LAB] },
       [`/dashboard/chairs/${FADE_LAB.id}/appointments`]: { status: 200, body: WEEK },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600), `?chair=${FADE_LAB.id}`);
@@ -256,6 +288,7 @@ describe("dashboard loader", () => {
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [WAITING, JOINED] },
       [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600), `?chair=${WAITING.id}`);
@@ -268,6 +301,48 @@ describe("dashboard loader", () => {
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [JOINED] },
       [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 401 },
+      ...NO_REQUESTS,
+    });
+
+    const response = await thrown(load(await cookie(3600)));
+
+    expect(response.headers.get("Location")).toBe("/login");
+  });
+
+  it("hands the inbox the requests to join the worker's shops, as the worker", async () => {
+    const fetchMock = stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [JOINED] },
+      [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+      "/dashboard/join-requests": { status: 200, body: [SQUIDWARD] },
+    });
+
+    const result = await load(await cookie(3600));
+
+    expect(result.data.requests).toEqual([SQUIDWARD]);
+    const [, init] = fetchMock.mock.calls.find(([url]) => url === `${API_URL}/dashboard/join-requests`)!;
+    expect(init?.headers).toEqual({ Authorization: "Bearer access-1" });
+  });
+
+  it("opens the inbox for ?inbox, at the shop ?chair= names", async () => {
+    stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [JOINED, FADE_LAB] },
+      [`/dashboard/chairs/${FADE_LAB.id}/appointments`]: { status: 200, body: WEEK },
+      "/dashboard/join-requests": { status: 200, body: [SQUIDWARD] },
+    });
+
+    const result = await load(await cookie(3600), `?inbox&chair=${FADE_LAB.id}`);
+
+    expect(result.data).toMatchObject({ inbox: true, chair: FADE_LAB, requests: [SQUIDWARD] });
+  });
+
+  it("logs the visitor out when the API rejects the token for the inbox", async () => {
+    stubApi({
+      "/auth/me": { status: 200, body: ME },
+      "/dashboard/chairs": { status: 200, body: [JOINED] },
+      [`/dashboard/chairs/${JOINED.id}/appointments`]: { status: 200, body: WEEK },
+      "/dashboard/join-requests": { status: 401 },
     });
 
     const response = await thrown(load(await cookie(3600)));
@@ -280,6 +355,7 @@ describe("dashboard loader", () => {
       "/auth/refresh": { status: 200, body: RENEWED },
       "/auth/me": { status: 200, body: ME },
       "/dashboard/chairs": { status: 200, body: [] },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(30));
@@ -386,6 +462,7 @@ describe("dashboard loader", () => {
           },
         ],
       },
+      ...NO_REQUESTS,
     });
 
     const result = await load(await cookie(3600));
@@ -403,6 +480,7 @@ describe("dashboard loader", () => {
     ...Object.fromEntries(
       chairs.map((c) => [`/dashboard/chairs/${c.id}/appointments`, { status: 200, body: WEEK }]),
     ),
+    ...NO_REQUESTS,
   });
 
   it("opens the hours at the shop the worker has joined, over a request still waiting", async () => {
@@ -653,6 +731,46 @@ describe("dashboard action", () => {
     expect(response.headers.get("Location")).toBe("/login");
   });
 
+  /** What a join request's Accept posts from its row in the inbox. */
+  const JOIN_ANSWER = { intent: "answer-join-request", chair: SQUIDWARD.id, status: "ACCEPTED" };
+  const JOIN_ANSWER_PATH = `/dashboard/join-requests/${SQUIDWARD.id}`;
+
+  it.each(["ACCEPTED", "REJECTED"])("PUTs a join request's answer of %s as the user, and stays on the page", async (status) => {
+    const fetchMock = stubApi({ [JOIN_ANSWER_PATH]: { status: 200, body: { id: SQUIDWARD.id, status } } });
+
+    const result = await post({ ...JOIN_ANSWER, status });
+
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toMatchObject({ data: { error: null, conflicts: null } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${API_URL}${JOIN_ANSWER_PATH}`);
+    expect(init?.method).toBe("PUT");
+    expect(init?.headers).toEqual({ Authorization: "Bearer access-1", "Content-Type": "application/json" });
+    expect(JSON.parse(String(init?.body))).toEqual({ status });
+  });
+
+  it.each([
+    { status: 409, error: "This request was already answered" },
+    { status: 404, error: "This request was withdrawn or already declined" },
+    { status: 503, error: "Could not send your answer, please try again" },
+  ])("hands back a refused join answer ($status) without an error status", async ({ status, error }) => {
+    stubApi({ [JOIN_ANSWER_PATH]: { status } });
+
+    const result = await post(JOIN_ANSWER);
+
+    expect(result).toMatchObject({ data: { error } });
+    expect((result as { init?: ResponseInit }).init?.status).toBeUndefined();
+  });
+
+  it("logs the visitor out when the API rejects the token for a join answer", async () => {
+    stubApi({ [JOIN_ANSWER_PATH]: { status: 401 } });
+
+    const response = await thrown(post(JOIN_ANSWER));
+
+    expect(response.headers.get("Location")).toBe("/login");
+  });
+
   /** What the time off form posts: AWAY as saved, a new Friday, and a new row left blank. */
   const TIME_OFF_FORM = [
     ["intent", "worker-time-off"],
@@ -745,7 +863,8 @@ describe("dashboard page", () => {
    * The real route component, with a stand-in action and a stand-in loader that
    * follows the URL: the week is at the shop ?chair= names, else the first joined.
    * An answer lands in the stand-in's copy of the week unless it's refused, or
-   * hangs, and the action answers it with data the way the real one does. Time
+   * hangs, and the action answers it with data the way the real one does. An
+   * answered join request leaves the stand-in's list, as it leaves the API's. Time
    * off saved over `conflicts` is answered with them, as the real action does.
    */
   function renderPage(
@@ -755,6 +874,7 @@ describe("dashboard page", () => {
       week = WEEK,
       timeOff = TIME_OFF,
       services = [SKIN_FADE],
+      requests = [],
       conflicts,
       refusal,
       hang = false,
@@ -763,6 +883,7 @@ describe("dashboard page", () => {
       week?: MyWeek;
       timeOff?: MyTimeOff;
       services?: MyService[];
+      requests?: JoinRequest[];
       conflicts?: TimeOffConflict[];
       refusal?: string;
       hang?: boolean;
@@ -770,9 +891,16 @@ describe("dashboard page", () => {
   ) {
     const posted: FormData[] = [];
     let current = week;
+    let waitingToJoin = requests;
     const pageAction = vi.fn(async ({ request }: { request: Request }) => {
       const form = await request.formData();
       posted.push(form);
+      if (form.get("intent") === "answer-join-request") {
+        if (hang) return new Promise<never>(() => {});
+        if (refusal) return { error: refusal, conflicts: null };
+        waitingToJoin = waitingToJoin.filter((r) => r.id !== form.get("chair"));
+        return { error: null, conflicts: null };
+      }
       if (form.get("intent") === "answer-request") {
         if (hang) return new Promise<never>(() => {});
         if (refusal) return { error: refusal };
@@ -795,9 +923,16 @@ describe("dashboard page", () => {
         Component: DashboardRoute,
         loader: ({ request }: { request: Request }) => {
           const shops = chairs.filter((c) => c.is_active);
-          const named = new URL(request.url).searchParams.get("chair");
-          const chair = shops.find((c) => c.id === named) ?? shops.at(0) ?? null;
-          return { editing: editingAt(request.url, chairs, timeOff, services), chairs, chair, week: chair && current };
+          const params = new URL(request.url).searchParams;
+          const chair = shops.find((c) => c.id === params.get("chair")) ?? shops.at(0) ?? null;
+          return {
+            editing: editingAt(request.url, chairs, timeOff, services),
+            inbox: params.has("inbox"),
+            chairs,
+            chair,
+            week: chair && current,
+            requests: waitingToJoin,
+          };
         },
         action: pageAction,
       },
@@ -827,6 +962,137 @@ describe("dashboard page", () => {
       "Thursday November 5",
     ]);
     expectHeadingOutline();
+  });
+
+  it("shows an empty inbox while nobody is asking to join, linked at the shop showing", async () => {
+    renderPage();
+
+    const inbox = await screen.findByRole("link", { name: "Inbox" });
+    expect(inbox).toHaveTextContent(/^$/);
+    expect(inbox).toHaveAttribute("href", `/dashboard?inbox&chair=${JOINED.id}`);
+  });
+
+  it.each([
+    { n: 1, name: "Inbox, 1 request", badge: "1" },
+    { n: 3, name: "Inbox, 3 requests", badge: "3" },
+    { n: 12, name: "Inbox, 12 requests", badge: "9+" },
+  ])("counts $n waiting on the inbox", async ({ n, name, badge }) => {
+    renderPage("/dashboard", { requests: asking(n) });
+
+    expect(await screen.findByRole("link", { name })).toHaveTextContent(badge);
+  });
+
+  /** Squidward with a phone too, so both contact links show. */
+  const REACHABLE = { ...SQUIDWARD, worker: { ...SQUIDWARD.worker, public_phone: "+16925559003" } };
+
+  it("opens the inbox from its button, with who wants to join and how to reach them", async () => {
+    const { user } = renderPage("/dashboard", { requests: [REACHABLE] });
+
+    await user.click(await screen.findByRole("link", { name: "Inbox, 1 request" }));
+
+    const inbox = within(await opened("Inbox"));
+    expect(inbox.getByText("Squidward Tentacles")).toBeInTheDocument();
+    expect(inbox.getByText("Wants to join Regular Cutz")).toBeInTheDocument();
+    expect(inbox.getByText("Clarinet player, reluctant barber.")).toBeInTheDocument();
+    expect(inbox.getByRole("link", { name: "+16925559003" })).toHaveAttribute("href", "tel:+16925559003");
+    expect(inbox.getByRole("link", { name: "squidward@example.com" })).toHaveAttribute(
+      "href",
+      "mailto:squidward@example.com",
+    );
+    expect(inbox.getByRole("button", { name: "Accept Squidward Tentacles at Regular Cutz" })).toBeInTheDocument();
+  });
+
+  it("says so when nobody is waiting", async () => {
+    renderPage("/dashboard?inbox");
+
+    const inbox = within(await opened("Inbox"));
+    expect(inbox.getByRole("heading", { level: 3, name: "Nothing waiting" })).toBeInTheDocument();
+    expect(inbox.queryByRole("listitem")).not.toBeInTheDocument();
+  });
+
+  it("accepts from the inbox, keeps the row to show it, and clears the badge", async () => {
+    const { user, posted } = renderPage("/dashboard?inbox", { requests: [SQUIDWARD] });
+    const inbox = within(await opened("Inbox"));
+
+    await user.click(inbox.getByRole("button", { name: "Accept Squidward Tentacles at Regular Cutz" }));
+
+    expect(await inbox.findByText("Squidward joined Regular Cutz")).toBeInTheDocument();
+    expect(inbox.getByText("Accepted")).toBeInTheDocument();
+    expect(inbox.queryByRole("button", { name: /Squidward/ })).not.toBeInTheDocument();
+    expect(posted).toHaveLength(1);
+    expect(Object.fromEntries(posted[0])).toEqual({
+      intent: "answer-join-request",
+      chair: SQUIDWARD.id,
+      status: "ACCEPTED",
+    });
+    expect(screen.getByRole("link", { name: "Inbox", hidden: true })).toHaveTextContent(/^$/);
+  });
+
+  it("asks before declining, with focus on Keep, and Keep puts the buttons back", async () => {
+    const { user, posted } = renderPage("/dashboard?inbox", { requests: [SQUIDWARD] });
+    const inbox = within(await opened("Inbox"));
+
+    await user.click(inbox.getByRole("button", { name: "Decline Squidward Tentacles at Regular Cutz" }));
+
+    const keep = inbox.getByRole("button", { name: "Keep the request from Squidward Tentacles" });
+    expect(keep).toHaveFocus();
+    expect(inbox.getByRole("button", { name: "Decline the request from Squidward Tentacles" })).toBeInTheDocument();
+    expect(inbox.queryByRole("button", { name: /^Accept/ })).not.toBeInTheDocument();
+
+    await user.click(keep);
+
+    expect(inbox.getByRole("button", { name: "Decline Squidward Tentacles at Regular Cutz" })).toHaveFocus();
+    expect(inbox.getByRole("button", { name: "Accept Squidward Tentacles at Regular Cutz" })).toBeInTheDocument();
+    expect(posted).toHaveLength(0);
+  });
+
+  it("declines once confirmed, then shows it declined", async () => {
+    const { user, posted } = renderPage("/dashboard?inbox", { requests: [SQUIDWARD] });
+    const inbox = within(await opened("Inbox"));
+
+    await user.click(inbox.getByRole("button", { name: "Decline Squidward Tentacles at Regular Cutz" }));
+    await user.click(inbox.getByRole("button", { name: "Decline the request from Squidward Tentacles" }));
+
+    expect(await inbox.findByText("Squidward can ask again")).toBeInTheDocument();
+    expect(inbox.getByText("Declined")).toBeInTheDocument();
+    expect(Object.fromEntries(posted[0])).toMatchObject({ chair: SQUIDWARD.id, status: "REJECTED" });
+  });
+
+  it("shows a refused join answer on its own row, with the buttons still there", async () => {
+    const { user } = renderPage("/dashboard?inbox", {
+      requests: asking(2),
+      refusal: "This request was already answered",
+    });
+    const inbox = within(await opened("Inbox"));
+    const [first] = inbox.getAllByRole("listitem");
+
+    await user.click(within(first).getAllByRole("button", { name: /^Accept/ })[0]);
+
+    expect(await within(first).findByRole("alert")).toHaveTextContent("This request was already answered");
+    expect(inbox.getAllByRole("alert")).toHaveLength(1);
+    expect(within(first).getByRole("button", { name: /^Accept/ })).toBeInTheDocument();
+    expect(inbox.queryByText("Accepted")).not.toBeInTheDocument();
+  });
+
+  it("closes the inbox on Done, keeping the shop showing", async () => {
+    const { user } = renderPage(`/dashboard?inbox&chair=${FADE_LAB.id}`, { chairs: [JOINED, FADE_LAB] });
+    const inbox = await opened("Inbox");
+
+    await user.click(within(inbox).getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(inbox).not.toBeInTheDocument());
+    const shops = screen.getByRole("navigation", { name: "Shops" });
+    expect(within(shops).getByRole("link", { name: "Fade Lab" })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("closes the inbox on Escape", async () => {
+    renderPage("/dashboard?inbox");
+    const inbox = await opened("Inbox");
+
+    // jsdom doesn't turn Escape into the cancel event a browser fires at the dialog.
+    fireEvent(inbox, new Event("cancel", { cancelable: true }));
+
+    await waitFor(() => expect(inbox).not.toBeInTheDocument());
   });
 
   it("shows each booking's time, length, client, service, price, and status on the shop's clock", async () => {

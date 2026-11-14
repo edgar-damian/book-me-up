@@ -2,9 +2,10 @@ import { data, redirect } from "react-router";
 import type { Route } from "./+types/dashboard";
 import { Dashboard } from "../pages/Dashboard";
 import type { Me } from "~/models/auth";
-import type { MyChair, MyTimeOff, MyWeek } from "~/models/dashboard";
+import type { JoinRequest, MyChair, MyTimeOff, MyWeek } from "~/models/dashboard";
 import { authorize, toLogin } from "~/auth.server";
 import {
+  answerJoinRequest,
   answerRequest,
   apiGet,
   loadSetup,
@@ -16,6 +17,7 @@ import {
 import { ANSWER_FORM } from "~/widgets/Dashboard/appointments";
 import { STEPS } from "~/widgets/Dashboard/onboarding";
 import type { Editing } from "~/widgets/Dashboard/editDialog";
+import { JOIN_ANSWER_FORM } from "~/widgets/Dashboard/inbox";
 import { PROFILE_FORM } from "~/widgets/Dashboard/workerProfile";
 import { HOURS_FORM } from "~/widgets/Dashboard/schedule";
 import { SERVICES_FORM } from "~/widgets/Dashboard/services";
@@ -75,10 +77,18 @@ export async function loader({ request }: Route.LoaderArgs) {
   const chairs = setup ? (setup.chairs ?? []) : ((await apiGet<MyChair[]>(request, token, "/dashboard/chairs")) ?? []);
   const shops = chairs.filter((c) => c.is_active);
   const chair = shops.find((c) => c.id === params.get("chair")) ?? shops.at(0) ?? null;
-  const week = chair
-    ? await apiGet<MyWeek>(request, token, `/dashboard/chairs/${encodeURIComponent(chair.id)}/appointments`)
-    : null;
-  return data({ editing, chairs, chair, week }, headers ? { headers } : undefined);
+  // The requests to join the shops the worker owns put a count on the inbox.
+  // A worker who owns no shop always gets none.
+  const [week, requests] = await Promise.all([
+    chair
+      ? apiGet<MyWeek>(request, token, `/dashboard/chairs/${encodeURIComponent(chair.id)}/appointments`)
+      : null,
+    apiGet<JoinRequest[]>(request, token, "/dashboard/join-requests"),
+  ]);
+  return data(
+    { editing, inbox: params.has("inbox"), chairs, chair, week, requests: requests ?? [] },
+    headers ? { headers } : undefined,
+  );
 }
 
 /** What saves each form the edit dialog holds, named by its intent. */
@@ -107,6 +117,12 @@ export async function action({ request }: Route.ActionArgs) {
   // without an error status, so the week still reloads and shows what became of the booking.
   if (fd.get("intent") === ANSWER_FORM) {
     const refused = await answerRequest(request, token, fd);
+    return data({ error: refused?.error ?? null, conflicts: null }, { headers });
+  }
+  // A join request is answered the same way, so the badge drops on the reload
+  // while the inbox keeps the row.
+  if (fd.get("intent") === JOIN_ANSWER_FORM) {
+    const refused = await answerJoinRequest(request, token, fd);
     return data({ error: refused?.error ?? null, conflicts: null }, { headers });
   }
 
@@ -140,7 +156,9 @@ export default function DashboardRoute({ loaderData, actionData }: Route.Compone
       chairs={loaderData.chairs}
       chair={loaderData.chair}
       week={loaderData.week}
+      requests={loaderData.requests}
       editing={loaderData.editing}
+      inbox={loaderData.inbox}
       error={actionData?.error ?? null}
       conflicts={actionData?.conflicts ?? null}
     />

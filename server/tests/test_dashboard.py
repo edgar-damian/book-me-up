@@ -19,7 +19,13 @@ from server.models.dashboard import Answer, SaveStretch
 from server.routes.auth import current_user
 from server.supabase import sb_function
 from server.supabase.auth import Caller
-from server.supabase.dashboard import answer_request, get_time_off, get_week, save_time_off
+from server.supabase.dashboard import (
+    answer_join_request,
+    answer_request,
+    get_time_off,
+    get_week,
+    save_time_off,
+)
 
 URL = "/dashboard/profile"
 CALLER = Caller(user_id="00000001-0000-4000-8000-000000000005", access_token="access-1")
@@ -237,6 +243,12 @@ def test_malformed_slug_or_phone_is_422_and_never_queries(client, db, change):
         ("PUT", "/dashboard/profile", BODY),
         ("GET", "/dashboard/chairs", None),
         ("PUT", "/dashboard/join-request", {"slug": "krusty-fadez"}),
+        ("GET", "/dashboard/join-requests", None),
+        (
+            "PUT",
+            "/dashboard/join-requests/0000000c-0000-4000-8000-000000000004",
+            {"status": "ACCEPTED"},
+        ),
         (
             "POST",
             "/dashboard/shops",
@@ -1184,6 +1196,243 @@ def test_answer_failures(client, db, answer, outcome, code):
     answer.updated.execute.configure_mock(**outcome)
 
     assert client.put(answer_url(), json={"status": "ACCEPTED"}).status_code == code
+
+
+INBOX_URL = "/dashboard/join-requests"
+WAITING_CHAIR = "0000000c-0000-4000-8000-000000000004"
+REQUEST_COLS = (
+    "id, requested_at:started_at, shop:establishment(slug, name), "
+    "worker:worker_profile(first_name, last_name, bio, public_email, public_phone)"
+)
+APPLICANT = {
+    "first_name": "Squidward",
+    "last_name": "Tentacles",
+    "bio": "Clarinet player, reluctant barber.",
+    "public_email": "squidward@example.com",
+    "public_phone": None,
+}
+
+
+def join_answer_url(chair_id=WAITING_CHAIR):
+    return f"{INBOX_URL}/{chair_id}"
+
+
+def waiting(shop=KRUSTY, chair_id=WAITING_CHAIR, requested_at="2026-10-29T18:00:00Z"):
+    """One waiting worker_establishment row as the inbox reads it."""
+    return {
+        "id": chair_id,
+        "requested_at": requested_at,
+        "shop": {"slug": shop["slug"], "name": shop["name"]},
+        "worker": APPLICANT,
+    }
+
+
+@pytest.fixture
+def inbox(db):
+    """
+    The caller owns Krusty Fadez. Also the waiting chairs listed there, the guarded
+    write each answer runs, and the read that explains a write that matched nothing.
+    None of those match anything unless a test fills them.
+    """
+    owners = db.tables["establishment_owner"]
+    owned = owners.select.return_value.eq.return_value
+    owned.execute.return_value = rows({"establishment_id": KRUSTY["id"]})
+    chairs = db.tables["worker_establishment"]
+
+    def guarded(write):
+        return write.return_value.eq.return_value.in_.return_value.eq.return_value.is_.return_value
+
+    listed = chairs.select.return_value.in_.return_value.eq.return_value.is_.return_value.order
+    accept, decline = guarded(chairs.update), guarded(chairs.delete)
+    reread = chairs.select.return_value.eq.return_value.in_.return_value.limit.return_value
+    for query in (listed.return_value, accept.select.return_value, decline.select.return_value):
+        query.execute.return_value = rows()
+    reread.execute.return_value = rows()
+    return SimpleNamespace(
+        owners=owners,
+        owned=owned,
+        chairs=chairs,
+        listed=listed,
+        accept=accept,
+        decline=decline,
+        reread=reread,
+    )
+
+
+def test_inbox_lists_the_requests_waiting_at_the_callers_shops(client, db, inbox):
+    later = waiting(chair_id=NEW_CHAIR, requested_at="2026-10-30T09:00:00Z")
+    inbox.listed.return_value.execute.return_value = rows(waiting(), later)
+
+    response = client.get(INBOX_URL)
+
+    assert response.status_code == 200
+    assert response.json() == [waiting(), later]
+    options = db.factory.call_args.kwargs["options"]
+    assert options.headers["Authorization"] == "Bearer access-1"
+    assert inbox.owners.select.call_args == call("establishment_id")
+    assert inbox.owners.select.return_value.eq.call_args == call("user_id", CALLER.user_id)
+    by_shop = inbox.chairs.select.return_value.in_
+    assert inbox.chairs.select.call_args == call(REQUEST_COLS)
+    assert by_shop.call_args == call("establishment_id", [KRUSTY["id"]])
+    assert by_shop.return_value.eq.call_args == call("is_active", False)
+    assert by_shop.return_value.eq.return_value.is_.call_args == call("ended_at", None)
+    assert inbox.listed.call_args == call("started_at")
+
+
+def test_inbox_sends_only_what_a_request_shows(client, db, inbox):
+    row = waiting()
+    row |= {"worker_id": WORKER_ID, "worker": APPLICANT | {"user_id": CALLER.user_id}}
+    inbox.listed.return_value.execute.return_value = rows(row)
+
+    response = client.get(INBOX_URL)
+
+    assert response.status_code == 200
+    assert response.json() == [waiting()]
+
+
+def test_inbox_for_a_caller_who_owns_no_shop_is_empty(client, db, inbox):
+    inbox.owned.execute.return_value = rows()
+
+    response = client.get(INBOX_URL)
+
+    assert response.status_code == 200
+    assert response.json() == []
+    inbox.chairs.select.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("outcome", "code"),
+    [
+        ({"side_effect": APIError({"code": "PGRST303", "message": "JWT expired"})}, 401),
+        ({"side_effect": APIError({"code": "42501", "message": "permission denied"})}, 503),
+        ({"return_value": rows(waiting() | {"worker": None})}, 503),
+    ],
+    ids=["token-rejected", "query-failed", "applicant-hidden"],
+)
+def test_inbox_failures(client, db, inbox, outcome, code):
+    inbox.listed.return_value.execute.configure_mock(**outcome)
+
+    assert client.get(INBOX_URL).status_code == code
+
+
+def assert_guarded(write):
+    """The write only touches the waiting chair, and only at the caller's shops."""
+    by_id = write.return_value.eq
+    by_shop = by_id.return_value.in_
+    assert by_id.call_args == call("id", WAITING_CHAIR)
+    assert by_shop.call_args == call("establishment_id", [KRUSTY["id"]])
+    assert by_shop.return_value.eq.call_args == call("is_active", False)
+    assert by_shop.return_value.eq.return_value.is_.call_args == call("ended_at", None)
+
+
+def test_accepting_gives_the_worker_the_chair_from_now(db, inbox):
+    inbox.accept.select.return_value.execute.return_value = rows({"id": WAITING_CHAIR})
+
+    answered = answer_join_request(CALLER, UUID(WAITING_CHAIR), Answer.ACCEPTED, now_utc=NOW)
+
+    assert answered.model_dump(mode="json") == {"id": WAITING_CHAIR, "status": "ACCEPTED"}
+    assert inbox.chairs.update.call_args == call(
+        {"is_active": True, "started_at": "2026-10-30T13:00:00+00:00"}
+    )
+    assert_guarded(inbox.chairs.update)
+    assert inbox.accept.select.call_args == call("id")
+    inbox.chairs.delete.assert_not_called()
+    inbox.chairs.select.assert_not_called()
+
+
+def test_declining_deletes_the_waiting_request(db, inbox):
+    inbox.decline.select.return_value.execute.return_value = rows({"id": WAITING_CHAIR})
+
+    answered = answer_join_request(CALLER, UUID(WAITING_CHAIR), Answer.REJECTED, now_utc=NOW)
+
+    assert answered.model_dump(mode="json") == {"id": WAITING_CHAIR, "status": "REJECTED"}
+    inbox.chairs.delete.assert_called_once_with()
+    assert_guarded(inbox.chairs.delete)
+    inbox.chairs.update.assert_not_called()
+    inbox.chairs.select.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["ACCEPTED", "REJECTED"])
+def test_join_answer_sends_the_chair_and_its_answer(client, db, inbox, status):
+    write = inbox.accept if status == "ACCEPTED" else inbox.decline
+    write.select.return_value.execute.return_value = rows({"id": WAITING_CHAIR})
+
+    response = client.put(join_answer_url(), json={"status": status})
+
+    assert response.status_code == 200
+    assert response.json() == {"id": WAITING_CHAIR, "status": status}
+
+
+@pytest.mark.parametrize(
+    ("state", "asked", "code"),
+    [
+        ({"is_active": True, "ended_at": None}, "ACCEPTED", 200),
+        ({"is_active": True, "ended_at": None}, "REJECTED", 409),
+        ({"is_active": False, "ended_at": "2026-10-01T00:00:00+00:00"}, "ACCEPTED", 409),
+        ({"is_active": False, "ended_at": "2026-10-01T00:00:00+00:00"}, "REJECTED", 409),
+    ],
+    ids=["accepted-again", "decline-after-accept", "accept-after-end", "decline-after-end"],
+)
+def test_answering_a_request_that_isnt_waiting_anymore(client, db, inbox, state, asked, code):
+    inbox.reread.execute.return_value = rows(state)
+
+    response = client.put(join_answer_url(), json={"status": asked})
+
+    assert response.status_code == code
+    by_id = inbox.chairs.select.return_value.eq
+    assert inbox.chairs.select.call_args == call("is_active, ended_at")
+    assert by_id.call_args == call("id", WAITING_CHAIR)
+    assert by_id.return_value.in_.call_args == call("establishment_id", [KRUSTY["id"]])
+
+
+@pytest.mark.parametrize("status", ["ACCEPTED", "REJECTED"])
+def test_answer_for_a_request_not_at_the_callers_shops_is_404(client, db, inbox, status):
+    assert client.put(join_answer_url(), json={"status": status}).status_code == 404
+
+
+@pytest.mark.parametrize("status", ["ACCEPTED", "REJECTED"])
+def test_a_caller_who_owns_no_shop_cant_answer_and_writes_nothing(client, db, inbox, status):
+    inbox.owned.execute.return_value = rows()
+
+    assert client.put(join_answer_url(), json={"status": status}).status_code == 404
+    inbox.chairs.update.assert_not_called()
+    inbox.chairs.delete.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("url", "body"),
+    [
+        (join_answer_url(), {"status": "PENDING"}),
+        (join_answer_url(), {"status": "CANCELLED"}),
+        (join_answer_url(), {}),
+        (join_answer_url("not-a-chair"), {"status": "ACCEPTED"}),
+    ],
+    ids=["pending", "cancelled", "no-status", "malformed-id"],
+)
+def test_bad_join_answers_are_422_and_never_query(client, db, url, body):
+    assert client.put(url, json=body).status_code == 422
+    db.factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("query", "outcome", "code"),
+    [
+        ("write", {"side_effect": APIError({"code": "PGRST303", "message": "JWT expired"})}, 401),
+        ("write", {"side_effect": APIError({"code": "42501", "message": "row-level"})}, 503),
+        ("owned", {"return_value": rows({"establishment_id": "not-a-shop"})}, 503),
+        ("reread", {"return_value": rows({"is_active": "maybe"})}, 503),
+    ],
+    ids=["token-rejected", "query-failed", "owner-schema-mismatch", "chair-schema-mismatch"],
+)
+def test_join_answer_failures(client, db, inbox, query, outcome, code):
+    target = {
+        "write": inbox.accept.select.return_value,
+        "owned": inbox.owned,
+        "reread": inbox.reread,
+    }[query]
+    target.execute.configure_mock(**outcome)
+
+    assert client.put(join_answer_url(), json={"status": "ACCEPTED"}).status_code == code
 
 
 SKIN_FADE = {

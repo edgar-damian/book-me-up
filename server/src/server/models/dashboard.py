@@ -1,6 +1,7 @@
 """
 Bodies and responses for the worker dashboard. Everything here is the caller's
-own data, read and written as the caller so RLS applies.
+own data, or a request to join a shop they own, read and written as the caller
+so RLS applies.
 """
 
 from datetime import date
@@ -243,7 +244,7 @@ class MyWeek(BaseModel):
 
 
 class Answer(StrEnum):
-    """How a worker answers a booking request. Narrower than Status on purpose."""
+    """How a booking request or a join request is answered. Narrower than Status on purpose."""
 
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
@@ -252,6 +253,37 @@ class Answer(StrEnum):
 class AnswerRequest(BaseModel):
     """What a request's Accept or Reject posts. Any other status is a 422."""
 
+    status: Answer
+
+
+class JoinRequest(BaseModel):
+    """
+    A worker waiting on a chair at a shop the caller owns. id is the chair's, and
+    requested_at is when they asked. The fields are also the select list, so the
+    worker's booking settings stay unread.
+    """
+
+    class Shop(BaseModel):
+        slug: str
+        name: str
+
+    class Worker(BaseModel):
+        first_name: str
+        last_name: str
+        bio: str
+        public_email: str | None = None
+        public_phone: str | None = None
+
+    id: UUID
+    requested_at: AwareDatetime
+    shop: Shop
+    worker: Worker
+
+
+class AnsweredJoinRequest(BaseModel):
+    """A join request the caller answered, by its chair id, with the answer it got."""
+
+    id: UUID
     status: Answer
 
 

@@ -212,6 +212,13 @@
   --danger-text: #b3242b; /* 6.55:1 on white, 6.11:1 on canvas-soft */
   --on-danger: #ffffff;
 
+  /* ---- badge ----------------------------------------------------------- */
+  /* A count of things waiting on the user, like requests in the inbox. The
+     danger red under its own name, since a badge isn't an action. Follows
+     danger into dark mode. */
+  --badge: var(--danger);
+  --on-badge: var(--on-danger);
+
   /* ---- interaction ----------------------------------------------------- */
   --hover-wash: rgba(11, 15, 20, 0.045); /* hover = a subtle darkening */
   --press-wash: rgba(11, 15, 20, 0.09);
@@ -444,6 +451,9 @@
   --color-danger-active: var(--danger-active);
   --color-danger-text: var(--danger-text);
   --color-on-danger: var(--on-danger);
+
+  --color-badge: var(--badge);
+  --color-on-badge: var(--on-badge);
 
   --color-hover-wash: var(--hover-wash);
   --color-press-wash: var(--press-wash);

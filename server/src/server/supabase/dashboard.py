@@ -15,7 +15,9 @@ from pydantic import AwareDatetime, BaseModel, ValidationError
 
 from server.models.dashboard import (
     Answer,
+    AnsweredJoinRequest,
     CreateShop,
+    JoinRequest,
     MyAppointment,
     MyChair,
     MyDay,
@@ -87,7 +89,10 @@ class InvalidService(ValueError):
 
 
 class RequestClosed(RuntimeError):
-    """The booking isn't waiting on an answer anymore. Route turns this into a 409."""
+    """
+    The booking or join request isn't waiting on an answer anymore. Route turns
+    this into a 409.
+    """
 
 
 class _Shop(BaseModel):
@@ -173,6 +178,28 @@ class _Booked(TimeOffConflict):
 
     block_ends_at: AwareDatetime
 
+
+class _Owned(BaseModel):
+    """One shop the caller owns, by id."""
+
+    establishment_id: UUID
+
+
+class _ChairState(BaseModel):
+    """Where a chair stands, to explain a join answer that matched nothing."""
+
+    is_active: bool
+    ended_at: AwareDatetime | None = None
+
+
+_OWNED_COLS = _cols(_Owned)
+_CHAIR_STATE_COLS = _cols(_ChairState)
+_JOIN_REQUEST_COLS = _cols(
+    JoinRequest,
+    requested_at="requested_at:started_at",
+    shop=f"shop:establishment({_cols(JoinRequest.Shop)})",
+    worker=f"worker:worker_profile({_cols(JoinRequest.Worker)})",
+)
 
 _APPOINTMENT_COLS = _cols(MyAppointment)
 _TIME_OFF_COLS = _cols(_TimeOff)
@@ -899,6 +926,138 @@ def answer_request(
         logger.info("%s for a booking already %s: %s", answer, answered.status, appointment_id)
         raise RequestClosed(answered.status)
     return answered
+
+
+def _owned_shops(db, caller: Caller) -> list[str]:
+    """Ids of the shops the caller owns, empty when they own none."""
+    # establishment_owner_read also shows the other owners of the caller's shops.
+    resp = _run_as_user(
+        db.table("establishment_owner").select(_OWNED_COLS).eq("user_id", caller.user_id),
+        "owned shops",
+    )
+    try:
+        return [str(_Owned.model_validate(r).establishment_id) for r in resp.data]
+    except ValidationError as exc:
+        logger.exception("establishment_owner row failed validation")
+        raise DatabaseUnavailable("schema mismatch") from exc
+
+
+def get_join_requests(caller: Caller) -> list[JoinRequest]:
+    """
+    The workers waiting on a chair at the shops the caller owns, oldest first, read
+    as the caller. An applicant's profile is still hidden, and
+    worker_profile_owner_read is what lets the owner see it.
+
+    Args:
+        - caller (Caller): from verify_token
+
+    Returns:
+        - list[JoinRequest]: empty when the caller owns no shop or nobody is waiting
+
+    Raises:
+        - NotSignedIn: PostgREST rejected the token
+        - DatabaseUnavailable: a query failed, or a row didn't match its model
+    """
+    with user_db(caller.access_token) as db:
+        shops = _owned_shops(db, caller)
+        if not shops:
+            return []
+        # The shop filter matters: worker_establishment_self_read also shows the
+        # caller's own requests at other shops.
+        resp = _run_as_user(
+            db.table("worker_establishment")
+            .select(_JOIN_REQUEST_COLS)
+            .in_("establishment_id", shops)
+            .eq("is_active", False)
+            .is_("ended_at", None)
+            .order("started_at"),
+            "join requests",
+        )
+
+    try:
+        return [JoinRequest.model_validate(r) for r in resp.data]
+    except ValidationError as exc:
+        logger.exception("join request failed validation")
+        raise DatabaseUnavailable("schema mismatch") from exc
+
+
+def answer_join_request(
+    caller: Caller, chair_id: UUID, answer: Answer, *, now_utc: datetime | None = None
+) -> AnsweredJoinRequest | None:
+    """
+    Accepts or declines a request to join a shop the caller owns, as the caller.
+    Accepting turns the chair on from now, which takes a worker who has finished
+    setting up live. Declining deletes the request and any hours set on it, so the
+    worker can ask again. Only a request still waiting changes, and accepting again
+    changes nothing.
+
+    Args:
+        - caller (Caller): from verify_token
+        - chair_id (UUID): the waiting chair, JoinRequest.id
+        - answer (Answer): ACCEPTED or REJECTED
+        - now_utc (datetime | None): override for the current instant
+
+    Returns:
+        - AnsweredJoinRequest: the chair and its answer
+        - None: no chair with this id at a shop the caller owns, which includes a
+          request already declined or withdrawn. Route turns this into a 404.
+
+    Raises:
+        - RequestClosed: declining a chair already accepted, or answering one that has ended
+        - NotSignedIn: PostgREST rejected the token
+        - DatabaseUnavailable: a query failed, or a row didn't match its model
+    """
+    if now_utc is None:
+        now_utc = datetime.now(UTC)
+
+    with user_db(caller.access_token) as db:
+        shops = _owned_shops(db, caller)
+        if not shops:
+            logger.info("join answer from a caller who owns no shop: %s", chair_id)
+            return None
+
+        if answer is Answer.ACCEPTED:
+            write = db.table("worker_establishment").update(
+                {"is_active": True, "started_at": now_utc.isoformat()}
+            )
+        else:
+            write = db.table("worker_establishment").delete()
+        # The shop filter matters: the self_update and self_delete policies also
+        # match the caller's own chairs, and turning one of those on fails the
+        # policy's check, which would surface as a 503.
+        resp = _run_as_user(
+            write.eq("id", str(chair_id))
+            .in_("establishment_id", shops)
+            .eq("is_active", False)
+            .is_("ended_at", None)
+            .select("id"),
+            "answer join request",
+        )
+        if resp.data:
+            return AnsweredJoinRequest(id=chair_id, status=answer)
+
+        # Nothing matched, so the chair isn't at the caller's shops or isn't waiting.
+        resp = _run_as_user(
+            db.table("worker_establishment")
+            .select(_CHAIR_STATE_COLS)
+            .eq("id", str(chair_id))
+            .in_("establishment_id", shops)
+            .limit(1),
+            "answered join request",
+        )
+
+    if not resp.data:
+        logger.info("join answer for a chair not at the caller's shops: %s", chair_id)
+        return None
+    try:
+        chair = _ChairState.model_validate(resp.data[0])
+    except ValidationError as exc:
+        logger.exception("answered chair failed validation")
+        raise DatabaseUnavailable("schema mismatch") from exc
+    if answer is Answer.ACCEPTED and chair.is_active and chair.ended_at is None:
+        return AnsweredJoinRequest(id=chair_id, status=answer)
+    logger.info("%s for a chair that isn't waiting: %s", answer, chair_id)
+    raise RequestClosed(answer)
 
 
 def _overlaps(booking: _Booked, stretch: _Stretch) -> bool:

@@ -553,6 +553,19 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
+-- True when the worker holds, or has asked for, a chair at a shop the caller owns.
+create or replace function public.owns_shop_of(worker uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1
+    from public.worker_establishment we
+    join public.establishment_owner eo on eo.establishment_id = we.establishment_id
+    where we.worker_id = worker
+      and we.ended_at is null
+      and eo.user_id = auth.uid()
+  );
+$$;
+
 -- ---- public booking surface: readable by anyone ----
 create policy establishment_public_read on public.establishment
   for select using (is_active);
@@ -601,6 +614,11 @@ create policy worker_profile_self_read on public.worker_profile
 
 create policy worker_profile_self_insert on public.worker_profile
   for insert with check (user_id = auth.uid() and not is_active);
+
+-- An applicant's profile stays hidden until their request is approved, so the
+-- owner answering it reads it here. A stint that has ended drops out.
+create policy worker_profile_owner_read on public.worker_profile
+  for select using (owns_shop_of(id));
 
 -- Joining a shop is a request: the worker inserts the chair inactive and only
 -- an owner of that shop turns it on. An owner may add their own chair active,

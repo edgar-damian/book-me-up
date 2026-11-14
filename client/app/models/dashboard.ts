@@ -158,10 +158,37 @@ export type MyWeek = {
 };
 
 /**
- * What a request's Accept or Reject sends to PUT /dashboard/appointments/{id}/status.
- * The response is the booking as a MyAppointment.
+ * What a request's Accept or Reject sends to PUT /dashboard/appointments/{id}/status,
+ * where the response is the booking as a MyAppointment, or to
+ * PUT /dashboard/join-requests/{id}, where it is an AnsweredJoinRequest.
  */
 export type AnswerRequest = {
+  status: "ACCEPTED" | "REJECTED";
+};
+
+/**
+ * A worker waiting on a chair at a shop the signed-in user owns. id is the
+ * chair's, and requested_at is when they asked, as an absolute instant.
+ */
+export type JoinRequest = {
+  id: string;
+  requested_at: string;
+  shop: {
+    slug: string;
+    name: string;
+  };
+  worker: {
+    first_name: string;
+    last_name: string;
+    bio: string;
+    public_email: string | null;
+    public_phone: string | null;
+  };
+};
+
+/** A join request the owner answered, by its chair id, with the answer it got. */
+export type AnsweredJoinRequest = {
+  id: string;
   status: "ACCEPTED" | "REJECTED";
 };
 

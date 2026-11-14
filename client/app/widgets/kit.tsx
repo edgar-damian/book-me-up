@@ -544,6 +544,13 @@ export const IconMail = (p: GlyphProps) => (
   </Glyph>
 );
 
+export const IconInbox = (p: GlyphProps) => (
+  <Glyph {...p}>
+    <path d="M3 13.5 5.6 6.3A2 2 0 0 1 7.5 5h9a2 2 0 0 1 1.9 1.3l2.6 7.2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    <path d="M3 13.5h4.5l1.5 2.5h6l1.5-2.5H21" />
+  </Glyph>
+);
+
 export const IconPhone = (p: GlyphProps) => (
   <Glyph {...p}>
     <path d="M7.5 3.5h-2A2.5 2.5 0 0 0 3 6.2C3.5 14 10 20.5 17.8 21a2.5 2.5 0 0 0 2.7-2.5v-2l-4.5-1.5-2 2a13.5 13.5 0 0 1-5-5l2-2Z" />
