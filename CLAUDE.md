@@ -78,6 +78,7 @@ and every rule lives in the matching `supabase/` module.
 | Landing pages | `routes/apis.py` | `supabase/sb_function.py` | `models/public_models.py` |
 | Booking flow | `routes/booking.py` (`/booking` prefix) | `supabase/booking.py` | `models/booking.py` |
 | Worker dashboard | `routes/dashboard.py` (`/dashboard` prefix) | `supabase/dashboard.py` | `models/dashboard.py` |
+| Search page | `routes/search.py` (`/search` prefix) | `supabase/search.py` | `models/search.py` |
 
 Every dashboard query runs as the caller through `user_db`, so RLS is the boundary there
 too; none of them uses `admin_db`. The one RPC is `create_shop()` calling

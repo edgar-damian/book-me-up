@@ -12,6 +12,7 @@ from server.routes.apis import router
 from server.routes.auth import router as auth_router
 from server.routes.booking import router as booking_router
 from server.routes.dashboard import router as dashboard_router
+from server.routes.search import router as search_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,3 +39,4 @@ app.include_router(router)
 app.include_router(booking_router)
 app.include_router(auth_router)
 app.include_router(dashboard_router)
+app.include_router(search_router)
