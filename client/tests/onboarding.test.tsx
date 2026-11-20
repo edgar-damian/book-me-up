@@ -766,8 +766,9 @@ describe("onboarding page", () => {
     const { user } = renderPage("shop", { profile: PROFILE, chairs: [WAITING] }, "/onboarding?shop=new");
     await user.click(await screen.findByRole("radio", { name: "Join a shop" }));
 
-    expect(await screen.findByLabelText("Shop link")).toHaveValue("krusty-fadez");
-    expect(screen.queryByLabelText("Shop name")).not.toBeInTheDocument();
+    // Both forms have a "Shop link" field, so wait for the new shop form to go first.
+    await waitFor(() => expect(screen.queryByLabelText("Shop name")).not.toBeInTheDocument());
+    expect(field("Shop link")).toHaveValue("krusty-fadez");
     expect(next()).toBeEnabled();
   });
 
