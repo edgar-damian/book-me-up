@@ -36,7 +36,7 @@ describe("server rendering", () => {
     const html = renderToString(<Stub initialEntries={["/search"]} />);
 
     expect(html).toContain("<main");
-    expect(html).toContain("This is the search page");
+    expect(html).toContain("Find your next appointment");
   });
 
   it("renders the login page without a browser", () => {
