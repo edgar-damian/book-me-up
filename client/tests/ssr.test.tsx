@@ -6,6 +6,7 @@ import Home from "~/routes/home";
 import WaitListRoute from "~/routes/waitlist";
 import LogInRoute from "~/routes/login";
 import SignUpRoute from "~/routes/signup";
+import SearchRoute from "~/routes/search";
 import { Onboarding } from "~/pages/Onboarding";
 import { Dashboard } from "~/pages/Dashboard";
 import { ErrorPage } from "~/pages/ErrorPage";
@@ -28,6 +29,14 @@ describe("server rendering", () => {
 
     expect(html).toContain("<main");
     expect(html).toContain("<h1");
+  });
+
+  it("renders the search page without a browser", () => {
+    const Stub = createRoutesStub([{ path: "/search", Component: SearchRoute }]);
+    const html = renderToString(<Stub initialEntries={["/search"]} />);
+
+    expect(html).toContain("<main");
+    expect(html).toContain("This is the search page");
   });
 
   it("renders the login page without a browser", () => {
