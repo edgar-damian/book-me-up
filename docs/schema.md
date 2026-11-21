@@ -58,6 +58,7 @@ WorkerProfile [icon: user-check, color: yellow] {
   slug String unique
   firstName String
   lastName String
+  fullName String // generated: firstName + " " + lastName, what name search matches
   bio String
   publicEmail String?
   publicPhone String?

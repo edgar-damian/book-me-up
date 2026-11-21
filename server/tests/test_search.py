@@ -1,7 +1,7 @@
 """
-GET /search/shops, /search/workers and /search/locations through the real
-query functions with only public_db faked: what each query asks for, the
-order results come back in, and how failures map.
+GET /search/shops, /search/workers and /search/locations, blanket and with
+search text, through the real query functions with only public_db faked: what
+each query asks for, the order results come back in, and how failures map.
 """
 
 from collections import defaultdict
@@ -37,14 +37,25 @@ def _shop(name: str, slug: str, **extra) -> dict:
 
 @pytest.fixture
 def shops():
-    """The public_db establishment query. execute.return_value.data holds the rows."""
+    """
+    The public_db establishment query. execute.return_value.data holds the
+    rows; ilike hands back the same query, as the real builder does.
+    """
     with patch.object(search, "public_db") as public_db:
         table = public_db.table
         select = table.return_value.select
         active = select.return_value.eq
-        execute = active.return_value.execute
+        query = active.return_value
+        query.ilike.return_value = query
+        execute = query.execute
         execute.return_value = MagicMock(data=[])
-        yield SimpleNamespace(table=table, select=select, active=active, execute=execute)
+        yield SimpleNamespace(
+            table=table,
+            select=select,
+            active=active,
+            ilike=query.ilike,
+            execute=execute,
+        )
 
 
 def test_shops_come_back_a_to_z_ignoring_case(client, shops):
@@ -147,15 +158,27 @@ def _worker(first: str, last: str, slug: str, shops: list[dict] | None = None, *
 
 @pytest.fixture
 def workers():
-    """The public_db worker_profile query. execute.return_value.data holds the rows."""
+    """
+    The public_db worker_profile query. execute.return_value.data holds the
+    rows; ilike hands back the same query, as the real builder does.
+    """
     with patch.object(search, "public_db") as public_db:
         table = public_db.table
         select = table.return_value.select
         live = select.return_value.eq
         seated = live.return_value.eq
-        execute = seated.return_value.execute
+        query = seated.return_value
+        query.ilike.return_value = query
+        execute = query.execute
         execute.return_value = MagicMock(data=[])
-        yield SimpleNamespace(table=table, select=select, live=live, seated=seated, execute=execute)
+        yield SimpleNamespace(
+            table=table,
+            select=select,
+            live=live,
+            seated=seated,
+            ilike=query.ilike,
+            execute=execute,
+        )
 
 
 def test_workers_come_back_a_to_z_by_first_name_ignoring_case(client, workers):
@@ -285,16 +308,26 @@ def _label(card: dict) -> str:
 
 @pytest.fixture
 def places():
-    """Both public_db queries, told apart by table. .shops / .workers hold the rows."""
+    """
+    Both public_db queries, told apart by table. .shops / .workers hold the
+    rows; ilike hands back the same query, as the real builder does.
+    """
     with patch.object(search, "public_db") as public_db:
         tables = defaultdict(MagicMock)
         public_db.table.side_effect = tables.__getitem__
-        shops = tables["establishment"].select.return_value.eq.return_value.execute
-        seated = tables["worker_profile"].select.return_value.eq.return_value.eq
-        workers = seated.return_value.execute
-        shops.return_value = MagicMock(data=[])
-        workers.return_value = MagicMock(data=[])
-        yield SimpleNamespace(tables=tables, shops=shops, workers=workers)
+        shop_query = tables["establishment"].select.return_value.eq.return_value
+        worker_query = tables["worker_profile"].select.return_value.eq.return_value.eq.return_value
+        shop_query.ilike.return_value = shop_query
+        worker_query.ilike.return_value = worker_query
+        shop_query.execute.return_value = MagicMock(data=[])
+        worker_query.execute.return_value = MagicMock(data=[])
+        yield SimpleNamespace(
+            tables=tables,
+            shops=shop_query.execute,
+            workers=worker_query.execute,
+            shop_ilike=shop_query.ilike,
+            worker_ilike=worker_query.ilike,
+        )
 
 
 def test_location_list_is_a_to_z_by_city_then_name(client, places):
@@ -444,3 +477,106 @@ def test_location_database_failure_is_a_vague_503(client, places, failing, error
 
     assert r.status_code == 503
     assert r.json() == {"detail": "Service temporarily unavailable"}
+
+
+SEARCHES = [(SHOPS_URL, "name"), (WORKERS_URL, "name"), (LOCATIONS_URL, "city")]
+SEARCH_IDS = ["shops", "workers", "locations"]
+
+
+@pytest.mark.parametrize("url", [SHOPS_URL, WORKERS_URL, LOCATIONS_URL], ids=SEARCH_IDS)
+def test_blanket_lists_add_no_filter(client, url):
+    with patch.object(search, "public_db") as public_db:
+        assert client.get(url).status_code == 200
+
+    assert "ilike" not in str(public_db.mock_calls)
+
+
+def test_shop_search_asks_for_names_containing_the_text(client, shops):
+    shops.execute.return_value.data = [
+        _shop("Fade Factory", "fade-factory"),
+        _shop("Best Fades", "best-fades"),
+    ]
+
+    r = client.get(SHOPS_URL, params={"name": "fade"})
+
+    assert r.status_code == 200
+    assert shops.ilike.call_args_list == [call("name", "%fade%")]
+    assert [card["name"] for card in r.json()] == ["Best Fades", "Fade Factory"]
+
+
+def test_worker_search_matches_the_full_name(client, workers):
+    workers.execute.return_value.data = [_worker("Benson", "Dunwoody", "benson-dunwoody")]
+
+    r = client.get(WORKERS_URL, params={"name": "Benson Dunwoody"})
+
+    assert r.status_code == 200
+    assert workers.ilike.call_args_list == [call("full_name", "%Benson Dunwoody%")]
+    assert [card["slug"] for card in r.json()] == ["benson-dunwoody"]
+
+
+def test_worker_search_keeps_the_worker_order(client, workers):
+    workers.execute.return_value.data = [
+        _worker("Benson", "Dunwoody", "benson-dunwoody"),
+        _worker("ben", "Zed", "ben-zed"),
+    ]
+
+    r = client.get(WORKERS_URL, params={"name": "ben"})
+
+    assert [card["first_name"] for card in r.json()] == ["ben", "Benson"]
+
+
+def test_location_search_filters_shops_and_workers_by_city(client, places):
+    places.shops.return_value.data = [
+        _shop("Krusty Fadez", "krusty-fadez", city="Bikini Bottom", state="MH"),
+    ]
+    places.workers.return_value.data = [
+        _worker("Skips", "Yeti", "skips-yeti"),
+        _worker("Eugene", "Krabs", "eugene-krabs"),
+    ]
+
+    r = client.get(LOCATIONS_URL, params={"city": "bikini bottom"})
+
+    assert r.status_code == 200
+    assert places.shop_ilike.call_args_list == [call("city", "%bikini bottom%")]
+    assert places.worker_ilike.call_args_list == [
+        call("worker_establishment.establishment.city", "%bikini bottom%")
+    ]
+    assert [_label(card) for card in r.json()] == ["Eugene Krabs", "Krusty Fadez", "Skips Yeti"]
+
+
+@pytest.mark.parametrize(
+    ("typed", "pattern"),
+    [
+        ("  Krusty   Fadez ", "%Krusty Fadez%"),
+        ("50%", "%50\\%%"),
+        ("a_b", "%a\\_b%"),
+        ("back\\slash", "%back\\\\slash%"),
+        ("fade*", "%fade%"),
+    ],
+    ids=["tidied", "percent", "underscore", "backslash", "star"],
+)
+def test_search_text_reaches_the_filter_tidied_and_escaped(client, shops, typed, pattern):
+    assert client.get(SHOPS_URL, params={"name": typed}).status_code == 200
+    assert shops.ilike.call_args == call("name", pattern)
+
+
+@pytest.mark.parametrize(("url", "param"), SEARCHES, ids=SEARCH_IDS)
+@pytest.mark.parametrize(
+    "typed", ["", "   ", "​", "***"], ids=["empty", "spaces", "zero-width", "stars"]
+)
+def test_blank_search_is_422_and_nothing_is_queried(client, url, param, typed):
+    with patch.object(search, "public_db") as public_db:
+        r = client.get(url, params={param: typed})
+
+    assert r.status_code == 422
+    assert r.json() == {"detail": "Type something to search for"}
+    assert "execute" not in str(public_db.mock_calls)
+
+
+@pytest.mark.parametrize(("url", "param"), SEARCHES, ids=SEARCH_IDS)
+def test_search_over_100_characters_is_422(client, url, param):
+    with patch.object(search, "public_db") as public_db:
+        r = client.get(url, params={param: "x" * 101})
+
+    assert r.status_code == 422
+    public_db.table.assert_not_called()
