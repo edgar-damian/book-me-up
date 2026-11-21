@@ -131,6 +131,8 @@ create table public.worker_profile (
   slug          text    not null unique,
   first_name    text    not null,
   last_name     text    not null,
+  -- What a name search matches, so "Benson Dunwoody" finds first and last together.
+  full_name     text    generated always as (first_name || ' ' || last_name) stored,
   bio           text    not null default '',
   public_email  text,
   public_phone  text,

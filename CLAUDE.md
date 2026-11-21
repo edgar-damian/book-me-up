@@ -173,6 +173,8 @@ is constructed**:
   `PENDING` and has a different status from the one asked for, or to a join request
   that isn't waiting anymore (declining one already accepted, accepting one already
   declined, or answering one that has ended).
+- `BlankSearch` → **422**. Search only; search text with nothing visible left once tidied,
+  checked before any query runs.
 
 `_run(query, what)` in `sb_function.py` is the house idiom for reads: it catches `APIError`
 and `httpx.HTTPError`, logs, and re-raises as `DatabaseUnavailable`. `_run_write()` in
