@@ -1,22 +1,79 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SearchResult, SearchResultShop, SearchResultWorker } from "~/models/search";
 import SearchRoute, { loader } from "~/routes/search";
 import { SearchBar } from "~/widgets/Search/searchBar";
 import { expectHeadingOutline } from "./helpers";
 
-function renderSearch() {
-  const Stub = createRoutesStub([{ path: "/search", Component: SearchRoute }]);
+const REGULAR: SearchResultShop = {
+  kind: "shop",
+  slug: "regular-cutz",
+  name: "Regular Cutz",
+  address: "1 Park Avenue",
+  city: "Twin Peaks",
+  state: "CA",
+  zip: "91302",
+  images: [],
+};
+const KRUSTY: SearchResultShop = {
+  ...REGULAR,
+  slug: "krusty-fadez",
+  name: "Krusty Fadez",
+  address: "831 Bottom Feeder Lane",
+  city: "Bikini Bottom",
+  state: "MH",
+  zip: "96970",
+};
+const at = (shop: SearchResultShop) => ({
+  slug: shop.slug,
+  name: shop.name,
+  city: shop.city,
+  state: shop.state,
+});
+const BENSON: SearchResultWorker = {
+  kind: "worker",
+  slug: "benson-dunwoody",
+  first_name: "Benson",
+  last_name: "Dunwoody",
+  image: null,
+  shops: [at(REGULAR)],
+};
+const SKIPS: SearchResultWorker = {
+  ...BENSON,
+  slug: "skips-yeti",
+  first_name: "Skips",
+  last_name: "Yeti",
+  shops: [at(KRUSTY), at(REGULAR)],
+};
+
+type Answer = { results?: SearchResult[]; error?: string | null };
+
+/**
+ * The real route with a stand-in loader. `answer` gets each request's ?by and ?q; every
+ * request is recorded as "by:q".
+ */
+async function renderSearch(answer: (by: string, q: string) => Answer | Promise<Answer> = () => ({})) {
+  const asked: string[] = [];
+  const stubLoader = async ({ request }: { request: Request }) => {
+    const params = new URL(request.url).searchParams;
+    const by = params.get("by") ?? "shop";
+    const q = params.get("q") ?? "";
+    asked.push(`${by}:${q}`);
+    return { by, q, results: [REGULAR], error: null, ...(await answer(by, q)) };
+  };
+  const Stub = createRoutesStub([{ path: "/search", Component: SearchRoute, loader: stubLoader }]);
   render(<Stub initialEntries={["/search"]} />);
-  return userEvent.setup();
+  await screen.findByRole("heading", { level: 1 });
+  return { user: userEvent.setup(), asked };
 }
 
 const chip = (name: string) => screen.getByRole("radio", { name });
 
 describe("search page", () => {
-  it("has one h1 and a clean heading outline", () => {
-    renderSearch();
+  it("has one h1 and a clean heading outline", async () => {
+    await renderSearch();
 
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
       "Find your next appointment",
@@ -24,15 +81,15 @@ describe("search page", () => {
     expectHeadingOutline();
   });
 
-  it("starts on Shop", () => {
-    renderSearch();
+  it("starts on Shop", async () => {
+    await renderSearch();
 
     expect(chip("Shop")).toBeChecked();
     expect(screen.getByLabelText("Search shops by name")).toHaveAttribute("placeholder", "Shop name");
   });
 
   it("relabels the field when Location is picked", async () => {
-    const user = renderSearch();
+    const { user } = await renderSearch();
 
     await user.click(chip("Location"));
 
@@ -42,7 +99,7 @@ describe("search page", () => {
   });
 
   it("shows a clear button only once something is typed, and it empties the field", async () => {
-    const user = renderSearch();
+    const { user } = await renderSearch();
     expect(screen.queryByRole("button", { name: "Clear search" })).not.toBeInTheDocument();
 
     const field = screen.getByLabelText("Search shops by name");
@@ -52,6 +109,116 @@ describe("search page", () => {
     expect(field).toHaveValue("");
     expect(field).toHaveFocus();
     expect(screen.queryByRole("button", { name: "Clear search" })).not.toBeInTheDocument();
+  });
+});
+
+describe("search results", () => {
+  it("shows the loader's shops on the first visit", async () => {
+    await renderSearch();
+
+    expect(screen.getByRole("status")).toHaveTextContent("1 result");
+    expect(screen.getByRole("link", { name: "Regular Cutz" })).toHaveAttribute(
+      "href",
+      "/shops/regular-cutz",
+    );
+    expect(screen.getByText(/1 Park Avenue/)).toHaveTextContent("1 Park AvenueTwin Peaks, CA 91302");
+  });
+
+  it("loads the picked chip with the typed text and shows worker cards", async () => {
+    const { user, asked } = await renderSearch((by) =>
+      by === "provider" ? { results: [BENSON] } : {},
+    );
+
+    await user.type(screen.getByLabelText("Search shops by name"), "benson");
+    await user.click(chip("Service Provider"));
+
+    const link = await screen.findByRole("link", { name: "Benson Dunwoody" });
+    expect(asked).toContain("provider:benson");
+    expect(link).toHaveAttribute("href", "/view-services/benson-dunwoody");
+    expect(screen.getByText(/^at/)).toHaveTextContent("at Regular Cutz");
+    expect(screen.getByRole("status")).toHaveTextContent('1 result for "benson"');
+  });
+
+  it("lists every shop a worker works at", async () => {
+    const { user } = await renderSearch((by) => (by === "provider" ? { results: [SKIPS] } : {}));
+
+    await user.click(chip("Service Provider"));
+
+    await screen.findByRole("link", { name: "Skips Yeti" });
+    expect(screen.getByText(/^at/)).toHaveTextContent("at Krusty Fadez, Regular Cutz");
+  });
+
+  it("groups the location list under each city", async () => {
+    const skipsInBikiniBottom = { ...SKIPS, shops: [at(KRUSTY)] };
+    const { user } = await renderSearch((by) =>
+      by === "location" ? { results: [KRUSTY, skipsInBikiniBottom, BENSON, REGULAR] } : {},
+    );
+
+    await user.click(chip("Location"));
+
+    const bikini = await screen.findByRole("heading", { level: 2, name: "Bikini Bottom, MH" });
+    const twinPeaks = screen.getByRole("heading", { level: 2, name: "Twin Peaks, CA" });
+    const names = (heading: HTMLElement) =>
+      within(heading.parentElement!).getAllByRole("link").map((link) => link.textContent);
+    expect(names(bikini)).toEqual(["Krusty Fadez", "Skips Yeti"]);
+    expect(names(twinPeaks)).toEqual(["Benson Dunwoody", "Regular Cutz"]);
+    expectHeadingOutline();
+  });
+
+  it("puts a city spelled in two cases under one heading", async () => {
+    const boise = { ...REGULAR, city: "Boise", state: "ID" };
+    const { user } = await renderSearch((by) =>
+      by === "location"
+        ? { results: [{ ...boise, slug: "alley-cuts", name: "Alley Cuts", state: "Id" }, boise] }
+        : {},
+    );
+
+    await user.click(chip("Location"));
+
+    await screen.findByRole("heading", { level: 2, name: "Boise, Id" });
+    expect(screen.getAllByRole("heading", { level: 2, name: /boise/i })).toHaveLength(1);
+  });
+
+  it("says when nothing matched", async () => {
+    const { user } = await renderSearch((_, q) => (q ? { results: [] } : {}));
+
+    await user.type(screen.getByLabelText("Search shops by name"), "New York{Enter}");
+
+    expect(await screen.findByRole("heading", { name: 'No results for "New York"' })).toBeInTheDocument();
+  });
+
+  it("shows the loader's message when a search fails", async () => {
+    const { user } = await renderSearch((_, q) =>
+      q ? { results: [], error: "Search isn't working right now, please try again" } : {},
+    );
+
+    await user.type(screen.getByLabelText("Search shops by name"), "cutz{Enter}");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Search isn't working right now, please try again",
+    );
+  });
+
+  it("marks the Search button busy until the results arrive", async () => {
+    let finish: () => void = () => {};
+    const { user } = await renderSearch((_, q) =>
+      q ? new Promise<Answer>((resolve) => (finish = () => resolve({ results: [KRUSTY] }))) : {},
+    );
+
+    await user.type(screen.getByLabelText("Search shops by name"), "krusty{Enter}");
+
+    const button = screen.getByRole("button", { name: "Searching…" });
+    expect(button).toHaveAttribute("aria-busy", "true");
+
+    finish();
+    await screen.findByRole("link", { name: "Krusty Fadez" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Search" })).toHaveAttribute("aria-busy", "false"));
+  });
+
+  it("shows a placeholder instead of a missing photo", async () => {
+    await renderSearch(() => ({ results: [REGULAR, BENSON] }));
+
+    expect(document.querySelector("img")).toBeNull();
   });
 });
 

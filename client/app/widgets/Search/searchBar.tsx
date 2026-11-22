@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { IconClose, IconSearch } from "~/widgets/kit";
+import { IconClose, IconSearch, Spinner } from "~/widgets/kit";
 
 export type SearchBy = "shop" | "provider" | "location";
 
@@ -19,7 +19,7 @@ const FIELD =
   "text-body-sm text-ink placeholder:text-ink-muted";
 
 const SUBMIT =
-  "inline-flex min-h-11 shrink-0 items-center justify-center rounded-md bg-primary px-4 " +
+  "inline-flex min-h-11 min-w-24 shrink-0 items-center justify-center rounded-md bg-primary px-4 " +
   "text-button text-on-primary transition-colors duration-120 ease-standard " +
   "hover:bg-primary-hover active:bg-primary-active";
 
@@ -38,10 +38,13 @@ const CHIP =
 
 export function SearchBar({
   onSearch,
+  busy = false,
   className = "",
 }: {
   /** Called on submit and whenever a different chip is picked. */
   onSearch?: (by: SearchBy, text: string) => void;
+  /** True while a search is loading. */
+  busy?: boolean;
   className?: string;
 }) {
   const [by, setBy] = useState<SearchBy>("shop");
@@ -92,8 +95,8 @@ export function SearchBar({
             </button>
           )}
         </div>
-        <button type="submit" className={SUBMIT}>
-          Search
+        <button type="submit" disabled={busy} aria-busy={busy} className={SUBMIT}>
+          {busy ? <Spinner label="Searching…" /> : "Search"}
         </button>
       </div>
 

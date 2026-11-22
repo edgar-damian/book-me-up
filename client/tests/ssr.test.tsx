@@ -6,7 +6,7 @@ import Home from "~/routes/home";
 import WaitListRoute from "~/routes/waitlist";
 import LogInRoute from "~/routes/login";
 import SignUpRoute from "~/routes/signup";
-import SearchRoute from "~/routes/search";
+import { Search } from "~/pages/Search";
 import { Onboarding } from "~/pages/Onboarding";
 import { Dashboard } from "~/pages/Dashboard";
 import { ErrorPage } from "~/pages/ErrorPage";
@@ -31,12 +31,40 @@ describe("server rendering", () => {
     expect(html).toContain("<h1");
   });
 
-  it("renders the search page without a browser", () => {
-    const Stub = createRoutesStub([{ path: "/search", Component: SearchRoute }]);
+  // The page itself, since a loader would not run inside renderToString.
+  it("renders the search page and its cards without a browser", () => {
+    const shop = {
+      kind: "shop" as const,
+      slug: "regular-cutz",
+      name: "Regular Cutz",
+      address: "1 Park Avenue",
+      city: "Twin Peaks",
+      state: "CA",
+      zip: "91302",
+      images: ["https://images.example.test/front.jpg"],
+    };
+    const worker = {
+      kind: "worker" as const,
+      slug: "benson-dunwoody",
+      first_name: "Benson",
+      last_name: "Dunwoody",
+      image: null,
+      shops: [{ slug: shop.slug, name: shop.name, city: shop.city, state: shop.state }],
+    };
+    const Stub = createRoutesStub([
+      {
+        path: "/search",
+        Component: () => (
+          <Search by="location" q="" results={[shop, worker]} error={null} busy={false} onSearch={() => {}} />
+        ),
+      },
+    ]);
     const html = renderToString(<Stub initialEntries={["/search"]} />);
 
     expect(html).toContain("<main");
     expect(html).toContain("Find your next appointment");
+    expect(html).toContain("Regular Cutz");
+    expect(html).toContain("Benson");
   });
 
   it("renders the login page without a browser", () => {

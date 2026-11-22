@@ -1,3 +1,4 @@
+import { useFetcher } from "react-router";
 import type { Route } from "./+types/search";
 import { Search } from "../pages/Search";
 import type { SearchResult } from "~/models/search";
@@ -51,6 +52,17 @@ export function meta({}: Route.MetaArgs) {
   return [{ title: "Search" }];
 }
 
-export default function SearchRoute() {
-  return <Search />;
+// The first visit renders the loader's default list; each search after that loads
+// through a fetcher, so the address stays /search. A newer load cancels an older one.
+export default function SearchRoute({ loaderData }: Route.ComponentProps) {
+  const fetcher = useFetcher<typeof loader>();
+  const data = fetcher.data ?? loaderData;
+
+  return (
+    <Search
+      {...data}
+      busy={fetcher.state !== "idle"}
+      onSearch={(by, text) => fetcher.load(`/search?${new URLSearchParams({ by, q: text })}`)}
+    />
+  );
 }
