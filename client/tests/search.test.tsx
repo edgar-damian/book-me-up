@@ -187,6 +187,14 @@ describe("search results", () => {
     expect(await screen.findByRole("heading", { name: 'No results for "New York"' })).toBeInTheDocument();
   });
 
+  it("says so when there is nothing to list yet", async () => {
+    await renderSearch(() => ({ results: [] }));
+
+    expect(screen.getByRole("heading", { name: "Nobody is taking bookings yet" })).toBeInTheDocument();
+    expect(screen.getByText("Check back soon.")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("shows the loader's message when a search fails", async () => {
     const { user } = await renderSearch((_, q) =>
       q ? { results: [], error: "Search isn't working right now, please try again" } : {},
