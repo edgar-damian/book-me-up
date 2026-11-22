@@ -563,6 +563,17 @@ export const IconMapPin = (p: GlyphProps) => (
     <circle cx="12" cy="10" r="2.6" />
   </Glyph>
 );
+export const IconSearch = (p: GlyphProps) => (
+  <Glyph {...p}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m20 20-4.4-4.4" />
+  </Glyph>
+);
+export const IconClose = (p: GlyphProps) => (
+  <Glyph {...p}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </Glyph>
+);
 
 export const IconPlay = (p: GlyphProps) => (
   <Glyph {...p}>

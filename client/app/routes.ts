@@ -11,4 +11,5 @@ export default [
   route("signup", "routes/signup.tsx"),
   route("dashboard", "routes/dashboard.tsx"),
   route("onboarding", "routes/onboarding.tsx"),
+  route("search", "routes/search.tsx"),
 ] satisfies RouteConfig;
