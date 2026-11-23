@@ -8,10 +8,10 @@ authors = [
 ]
 requires-python = ">=3.12.12"
 dependencies = [
-    "fastapi>=0.162.5",
+    "fastapi>=0.165.0",
     "httpx>=0.28.1",
-    "pydantic>=2.14.3",
-    "pydantic-settings>=2.16.2",
+    "pydantic>=2.14.4",
+    "pydantic-settings>=2.16.3",
     "pyjwt[crypto]>=2.15.1",
     "supabase>=2.34.1",
     "uvicorn>=0.54.0",
@@ -23,9 +23,9 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.16.0",
+    "httpx2>=2.16.2",
     "pytest>=9.2.0",
-    "ruff>=0.17.5",
+    "ruff>=0.17.6",
 ]
 
 [tool.pytest.ini_options]
